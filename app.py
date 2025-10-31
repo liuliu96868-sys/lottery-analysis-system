@@ -355,12 +355,34 @@ class ContentParser:
     
     @staticmethod
     def parse_pk10_content(content):
-        """解析PK10投注内容"""
+        """解析PK10投注内容 - 增强版"""
         pk10_positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
                          '第六名', '第七名', '第八名', '第九名', '第十名',
                          '第1名', '第2名', '第3名', '第4名', '第5名',
                          '第6名', '第7名', '第8名', '第9名', '第10名',
                          '前一', '前二', '前三']
+        
+        content_str = str(content).strip()
+        
+        # 特殊处理"位置:号码"格式
+        if ':' in content_str and re.search(r'\d{2}', content_str):
+            # 处理"第九名:01,02,05,06,07,08,09,03"这种格式
+            match = re.match(r'^(.+?):([\d,]+)$', content_str)
+            if match:
+                position = match.group(1).strip()
+                numbers_str = match.group(2)
+                bets_by_position = defaultdict(list)
+                
+                # 标准化位置名称
+                normalized_position = position
+                if '九' in position or '9' in position:
+                    normalized_position = '第九名'
+                
+                numbers = re.findall(r'\d{2}', numbers_str)
+                bets_by_position[normalized_position].extend([int(num) for num in numbers])
+                return bets_by_position
+        
+        # 原有的解析逻辑
         return ContentParser.parse_positional_bets(content, pk10_positions)
     
     @staticmethod
@@ -670,10 +692,10 @@ class DataAnalyzer:
         return '冠军'
     
     def _normalize_pk10_position(self, position):
-        """标准化PK10位置名称"""
+        """增强的PK10位置标准化"""
         position_mapping = {
             '冠军': '冠军', '第1名': '冠军', '第一名': '冠军', '1': '冠军', '1st': '冠军',
-            '前一': '冠军',  # 前一就是冠军
+            '前一': '冠军',
             '亚军': '亚军', '第2名': '亚军', '第二名': '亚军', '2': '亚军', '2nd': '亚军',
             '季军': '第三名', '第3名': '第三名', '第三名': '第三名', '三名': '第三名', '3': '第三名', '3rd': '第三名',
             '第4名': '第四名', '第四名': '第四名', '四名': '第四名', '4': '第四名', '4th': '第四名',
@@ -691,13 +713,26 @@ class DataAnalyzer:
         if position in position_mapping:
             return position_mapping[position]
         
-        # 模糊匹配
+        # 模糊匹配 - 增强逻辑
         for key, value in position_mapping.items():
             if key in position:
                 return value
         
-        # 如果还是无法识别，返回原位置
-        return position
+        # 处理带冒号的格式（如"第九名:"）
+        if position.endswith(':'):
+            clean_position = position[:-1].strip()
+            if clean_position in position_mapping:
+                return position_mapping[clean_position]
+            for key, value in position_mapping.items():
+                if key in clean_position:
+                    return value
+        
+        # 如果还是无法识别，尝试更宽松的匹配
+        position_lower = position.lower()
+        if '九' in position_lower or '9' in position_lower:
+            return '第九名'
+        
+        return position  # 返回原位置而不是未知
     
     def parse_lhc_special_content(self, content):
         """解析六合彩特殊玩法内容，按照玩法-投注内容格式解析"""
