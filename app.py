@@ -1,13 +1,3 @@
-[file name]: image.png
-[file content begin]
-~ 回 一分六合彩 (共1次违规)
-正码1-6矛盾 (1次)
-
-期号                        玩法分类                 违规类型                   详细信息                                     投注内容                      位置
-202510310776                                     正码1-6                                       正码1-6矛盾                                     矛盾类型: 合数单双矛盾| 位置: 正码3                                     正码3-合单,合双                                     正码3
-
-[file content end]
-
 import streamlit as st
 import pandas as pd
 import numpy as np
