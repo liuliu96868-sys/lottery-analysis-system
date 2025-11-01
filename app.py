@@ -467,11 +467,18 @@ class DataAnalyzer:
         return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
     
     def extract_numbers_from_content(self, content, min_num=0, max_num=49, is_pk10=False):
-        """从内容中提取数字"""
+        """从内容中提取数字 - 增强三军格式处理"""
         numbers = []
         content_str = str(content)
         
         try:
+            # 特殊处理三军格式：1,2,3,4,5,6
+            if re.match(r'^(\d,)*\d$', content_str.strip()):
+                numbers = [int(x.strip()) for x in content_str.split(',') if x.strip().isdigit()]
+                # 过滤范围
+                numbers = [num for num in numbers if min_num <= num <= max_num]
+                return list(set(numbers))
+            
             if is_pk10:
                 # PK拾/赛车特殊处理：过滤掉"第X名"等玩法描述
                 content_str = re.sub(r'第\d+名-?', '', content_str)
@@ -921,7 +928,11 @@ class PlayCategoryNormalizer:
             '独胆': '独胆',
             # 新增点数映射
             '点数': '和值',
+            # 增强三军映射
             '三军': '独胆',
+            '三軍': '独胆',
+            '三军_大小': '独胆',
+            '三军_单双': '独胆',
             
             # 六合彩玩法完整映射 - 尾数独立映射
             '特码': '特码',
@@ -1173,10 +1184,10 @@ class PlayCategoryNormalizer:
         elif any(word in category_lower for word in ['色波', '半波']):
             return '半波'
         
-        # 快三智能匹配 - 修复这里，添加点数、三军识别
-        elif any(word in category_lower for word in ['和值', '点数']):  # 点数映射为和值
+        # 快三智能匹配 - 增强三军识别
+        elif any(word in category_lower for word in ['和值', '点数']):
             return '和值'
-        elif any(word in category_lower for word in ['独胆', '三军']):  # 三军映射为独胆
+        elif any(word in category_lower for word in ['独胆', '三军', '三軍']):  # 增强三军识别
             return '独胆'
         elif any(word in category_lower for word in ['二不同号']):
             return '二不同号'
@@ -2743,13 +2754,25 @@ class AnalysisEngine:
                 self._add_unique_result(results, '和值大小矛盾', record)
     
     def _analyze_k3_dudan(self, account, lottery, period, group, results):
+        """分析快三独胆玩法 - 增强三军检测"""
         dudan_group = group[group['玩法分类'] == '独胆']
         
         for _, row in dudan_group.iterrows():
             content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 调试信息
+            if st.session_state.get('debug_mode', False):
+                st.write(f"🔍 独胆/三军检测: 账号={account}, 期号={period}, 玩法={category}, 内容={content}")
+            
             numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
             
-            if len(numbers) >= 4:
+            # 调试信息
+            if st.session_state.get('debug_mode', False):
+                st.write(f"🔍 号码提取结果: {numbers}, 数量={len(numbers)}")
+            
+            # 降低阈值或保持4个号码
+            if len(numbers) >= 4:  # 可以调整为3或保持4
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -2760,6 +2783,10 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '独胆多码')
                 }
                 self._add_unique_result(results, '独胆多码', record)
+                
+                # 调试信息
+                if st.session_state.get('debug_mode', False):
+                    st.success(f"✅ 检测到独胆多码: {account}, {period}, 号码数量={len(numbers)}")
     
     def _analyze_k3_different(self, account, lottery, period, group, results):
         different_categories = ['二不同号', '三不同号']
