@@ -85,7 +85,7 @@ THRESHOLD_CONFIG = {
     'K3': {
         'multi_number': 5,
         'hezhi_multi_number': 13,
-        'value_size_contradiction': 5
+        'value_size_contradiction': 5,
         'dudan_multi_number': 5
     },
     'LHC': {
