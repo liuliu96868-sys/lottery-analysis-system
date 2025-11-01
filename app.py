@@ -163,13 +163,24 @@ class DataProcessor:
                     for possible_name in possible_names:
                         possible_name_lower = possible_name.lower().replace(' ', '').replace('_', '').replace('-', '')
                         
-                        if (possible_name_lower in actual_col_lower or 
-                            actual_col_lower in possible_name_lower or
-                            len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower) > 0.7):
-                            identified_columns[actual_col] = standard_col
-                            st.success(f"✅ 识别列名: {actual_col} -> {standard_col}")
-                            found = True
-                            break
+                        # 增强会员账号识别
+                        if standard_col == '会员账号':
+                            # 更宽松的匹配规则
+                            account_keywords = ['会员', '账号', '账户', '用户', '玩家', 'id']
+                            if any(keyword in actual_col_lower for keyword in account_keywords):
+                                identified_columns[actual_col] = standard_col
+                                st.success(f"✅ 识别列名: {actual_col} -> {standard_col}")
+                                found = True
+                                break
+                        else:
+                            # 其他列的原有匹配逻辑
+                            if (possible_name_lower in actual_col_lower or 
+                                actual_col_lower in possible_name_lower or
+                                len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower) > 0.7):
+                                identified_columns[actual_col] = standard_col
+                                st.success(f"✅ 识别列名: {actual_col} -> {standard_col}")
+                                found = True
+                                break
                     
                     if found:
                         break
@@ -204,6 +215,23 @@ class DataProcessor:
                 null_count = df[col].isnull().sum()
                 if null_count > 0:
                     issues.append(f"列 '{col}' 有 {null_count} 个空值")
+
+        # 特别检查会员账号的完整性
+        if '会员账号' in df.columns:
+            # 检查是否有被截断的账号
+            truncated_accounts = df[df['会员账号'].str.contains(r'\.\.\.|…', na=False)]
+            if len(truncated_accounts) > 0:
+                issues.append(f"发现 {len(truncated_accounts)} 个可能被截断的会员账号")
+            
+            # 检查账号长度异常的情况
+            account_lengths = df['会员账号'].str.len()
+            if account_lengths.max() > 50:  # 假设正常账号长度不超过50个字符
+                issues.append("发现异常长度的会员账号")
+            
+            # 显示账号格式样本
+            unique_accounts = df['会员账号'].unique()[:5]
+            sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
+            st.info(f"会员账号格式样本: {sample_info}")
         
         # 检查数据类型
         if '期号' in df.columns:
@@ -278,19 +306,33 @@ class DataProcessor:
             df_clean = df_clean.dropna(subset=[col for col in self.required_columns if col in df_clean.columns])
             df_clean = df_clean.dropna(axis=1, how='all')
             
-            # 数据类型转换
+            # 数据类型转换 - 修改会员账号处理
             for col in self.required_columns:
                 if col in df_clean.columns:
-                    df_clean[col] = df_clean[col].astype(str).str.strip()
+                    if col == '会员账号':
+                        # 特别处理会员账号：保留原始格式，不去除特殊字符
+                        df_clean[col] = df_clean[col].astype(str)
+                        # 确保不会因为字符串操作截断内容
+                        df_clean[col] = df_clean[col].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+                    else:
+                        df_clean[col] = df_clean[col].astype(str).str.strip()
             
             # 修复期号格式：去掉.0
             if '期号' in df_clean.columns:
                 df_clean['期号'] = df_clean['期号'].str.replace(r'\.0$', '', regex=True)
             
-            # 数据质量验证
+            # 数据质量验证 - 添加会员账号完整性检查
             self.validate_data_quality(df_clean)
             
             st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
+            
+            # 显示会员账号样本，用于调试
+            if '会员账号' in df_clean.columns:
+                sample_accounts = df_clean['会员账号'].head(10).tolist()
+                with st.expander("🔍 会员账号样本（前10个）", expanded=False):
+                    for i, account in enumerate(sample_accounts, 1):
+                        st.write(f"{i}. '{account}' (长度: {len(str(account))})")
+            
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
             
             # 彩种分布显示
