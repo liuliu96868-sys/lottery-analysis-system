@@ -555,7 +555,7 @@ class DataAnalyzer:
         return list(set(dragon_tiger))
     
     def extract_wave_color_from_content(self, content):
-        """从内容中提取波色"""
+        """从内容中提取波色 - 增强版，支持半波项识别"""
         content_str = str(content)
         found_waves = []
         
@@ -563,35 +563,42 @@ class DataAnalyzer:
         if st.session_state.get('debug_mode', False):
             st.write(f"🔍 波色提取开始: 内容='{content_str}'")
         
-        # 使用更精确的匹配，避免误匹配
-        if '红波' in content_str:
-            # 检查是否是复合投注，如"红波-红双"
-            if '-' in content_str and '红波-' in content_str:
-                # 这种情况"红波"是玩法部分，不是实际投注内容
-                if st.session_state.get('debug_mode', False):
-                    st.write(f"🔍 波色调试: 忽略玩法部分 '红波'，完整内容: '{content_str}'")
-            else:
-                found_waves.append('红波')
-                if st.session_state.get('debug_mode', False):
-                    st.write(f"🔍 波色调试: 检测到 '红波'，完整内容: '{content_str}'")
+        # 波色映射（包括七色波的所有颜色）
+        wave_mappings = {
+            '红波': ['红波', '紅色波', '红'],
+            '蓝波': ['蓝波', '藍波', '蓝', '藍'],
+            '绿波': ['绿波', '綠波', '绿', '綠'],
+            '紫波': ['紫波', '紫'],
+            '橙波': ['橙波', '橙'],
+            '黄波': ['黄波', '黃波', '黄', '黃'],
+            '青波': ['青波', '青']
+        }
         
-        if '蓝波' in content_str:
-            if '-' in content_str and '蓝波-' in content_str:
-                if st.session_state.get('debug_mode', False):
-                    st.write(f"🔍 波色调试: 忽略玩法部分 '蓝波'，完整内容: '{content_str}'")
-            else:
-                found_waves.append('蓝波')
-                if st.session_state.get('debug_mode', False):
-                    st.write(f"🔍 波色调试: 检测到 '蓝波'，完整内容: '{content_str}'")
-        
-        if '绿波' in content_str:
-            if '-' in content_str and '绿波-' in content_str:
-                if st.session_state.get('debug_mode', False):
-                    st.write(f"🔍 波色调试: 忽略玩法部分 '绿波'，完整内容: '{content_str}'")
-            else:
-                found_waves.append('绿波')
-                if st.session_state.get('debug_mode', False):
-                    st.write(f"🔍 波色调试: 检测到 '绿波'，完整内容: '{content_str}'")
+        for wave_name, keywords in wave_mappings.items():
+            for keyword in keywords:
+                if keyword in content_str:
+                    # 检查是否是复合投注，如"红波-红双"
+                    if '-' in content_str and f"{keyword}-" in content_str:
+                        # 这种情况"红波"是玩法部分，不是实际投注内容
+                        if st.session_state.get('debug_mode', False):
+                            st.write(f"🔍 波色调试: 忽略玩法部分 '{keyword}'，完整内容: '{content_str}'")
+                    else:
+                        # 检查是否被半波项包含（如"红大"包含"红"，但不是我们要的波色）
+                        is_banbo_item = False
+                        banbo_indicators = ['大', '小', '单', '双']
+                        for indicator in banbo_indicators:
+                            if f"{keyword}{indicator}" in content_str or f"{keyword} {indicator}" in content_str:
+                                is_banbo_item = True
+                                break
+                        
+                        if not is_banbo_item:
+                            found_waves.append(wave_name)
+                            if st.session_state.get('debug_mode', False):
+                                st.write(f"🔍 波色调试: 检测到 '{wave_name}'，完整内容: '{content_str}'")
+                        else:
+                            if st.session_state.get('debug_mode', False):
+                                st.write(f"🔍 波色调试: 忽略半波项中的 '{keyword}'，完整内容: '{content_str}'")
+                    break  # 找到一个关键词就跳出内层循环
         
         # 调试信息 - 显示提取结果
         if st.session_state.get('debug_mode', False):
@@ -971,17 +978,20 @@ class PlayCategoryNormalizer:
             '连尾': '连尾',
             '龙虎': '龙虎',
             '五行': '五行',
-            '色波': '色波',
 
             # 波色相关玩法
             '色波': '色波',
-            '半波': '半波',  # 新增半波映射
+            '七色波': '七色波',
             '波色': '色波',
 
             #半波相关玩法映射
+            '半波': '半波',
             '蓝波': '半波',
             '绿波': '半波',
             '红波': '半波',
+            '半波_红波': '半波',
+            '半波_蓝波': '半波',
+            '半波_绿波': '半波',
 
             # 正码1-6相关映射
             '正码1-6': '正码1-6',
@@ -1182,7 +1192,9 @@ class PlayCategoryNormalizer:
             return '龙虎'
         elif any(word in category_lower for word in ['五行']):
             return '五行'
-        elif any(word in category_lower for word in ['色波', '半波']):
+        elif any(word in category_lower for word in ['色波', '七色波', '波色']):  # 统一色波识别
+            return '色波'
+        elif any(word in category_lower for word in ['半波']):
             return '半波'
         
         # 快三智能匹配 - 增强三军识别
@@ -2327,30 +2339,109 @@ class AnalysisEngine:
             self._add_unique_result(results, '一肖多肖', record)
     
     def _analyze_lhc_wave(self, account, lottery, period, group, results):
-        """六合彩色波检测 - 只记录同时投注三种波色（红波、蓝波、绿波）"""
+        """六合彩色波检测 - 包含半波内容检测"""
         wave_group = group[group['玩法分类'] == '色波']
-    
-        all_waves = set()
-    
+        
+        if wave_group.empty:
+            return
+        
+        # 收集所有波色投注
+        all_wave_bets = set()
+        all_banbo_bets = set()  # 半波投注
+        
+        # 定义半波投注项
+        banbo_items = {
+            '红大', '红小', '红单', '红双',
+            '蓝大', '蓝小', '蓝单', '蓝双', 
+            '绿大', '绿小', '绿单', '绿双'
+        }
+        
         for _, row in wave_group.iterrows():
             content = str(row['内容'])
             clean_content = self.data_analyzer.parse_lhc_special_content(content)
+            
+            # 提取传统波色
             waves = self.data_analyzer.extract_wave_color_from_content(clean_content)
-            all_waves.update(waves)
-    
-        # 只记录同时投注三种波色（红波、蓝波、绿波）
-        if len(all_waves) == 3:  # 同时投注红波、蓝波、绿波
+            all_wave_bets.update(waves)
+            
+            # 提取半波投注项
+            for item in banbo_items:
+                if item in clean_content:
+                    all_banbo_bets.add(item)
+            
+            # 调试信息
+            if st.session_state.get('debug_mode', False):
+                st.write(f"🔍 色波检测调试: 内容='{clean_content}', 波色={waves}, 半波项={[item for item in banbo_items if item in clean_content]}")
+        
+        # 检测1: 传统色波全包（红波、蓝波、绿波）
+        traditional_waves = {'红波', '蓝波', '绿波'}
+        if traditional_waves.issubset(all_wave_bets):
             record = {
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
                 '玩法分类': '色波',
-                '投注波色数': len(all_waves),
-                '投注波色': sorted(list(all_waves)),
-                '投注内容': ', '.join(sorted(all_waves)),
-                '排序权重': self._calculate_sort_weight({'投注波色数': len(all_waves)}, '色波全包')
+                '投注波色数': len(traditional_waves),
+                '投注波色': sorted(list(traditional_waves)),
+                '投注内容': ', '.join(sorted(traditional_waves)),
+                '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '色波全包')
             }
             self._add_unique_result(results, '色波全包', record)
+            if st.session_state.get('debug_mode', False):
+                st.write(f"✅ 检测到色波全包: {account}, {period}")
+        
+        # 检测2: 色波玩法中的半波全包检测
+        # 大小全包检测
+        size_full_set = {'红大', '红小', '蓝大', '蓝小', '绿大', '绿小'}
+        if size_full_set.issubset(all_banbo_bets):
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '色波',
+                '违规类型': '色波中半波大小全包',
+                '投注半波数': len(size_full_set),
+                '投注半波': sorted(list(size_full_set)),
+                '投注内容': ', '.join(sorted(size_full_set)),
+                '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '色波中半波大小全包')
+            }
+            self._add_unique_result(results, '色波中半波全包', record)
+            if st.session_state.get('debug_mode', False):
+                st.write(f"✅ 检测到色波中半波大小全包: {account}, {period}")
+        
+        # 单双全包检测
+        parity_full_set = {'红单', '红双', '蓝单', '蓝双', '绿单', '绿双'}
+        if parity_full_set.issubset(all_banbo_bets):
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '色波',
+                '违规类型': '色波中半波单双全包',
+                '投注半波数': len(parity_full_set),
+                '投注半波': sorted(list(parity_full_set)),
+                '投注内容': ', '.join(sorted(parity_full_set)),
+                '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '色波中半波单双全包')
+            }
+            self._add_unique_result(results, '色波中半波全包', record)
+            if st.session_state.get('debug_mode', False):
+                st.write(f"✅ 检测到色波中半波单双全包: {account}, {period}")
+        
+        # 检测3: 色波多组投注（超过阈值）
+        if len(all_wave_bets) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '色波',
+                '投注波色数': len(all_wave_bets),
+                '投注波色': sorted(list(all_wave_bets)),
+                '投注内容': ', '.join(sorted(all_wave_bets)),
+                '排序权重': self._calculate_sort_weight({'投注波色数': len(all_wave_bets)}, '色波多组')
+            }
+            self._add_unique_result(results, '色波多组', record)
+            if st.session_state.get('debug_mode', False):
+                st.write(f"✅ 检测到色波多组投注: {account}, {period}, 波色数量={len(all_wave_bets)}")
     
     def _analyze_lhc_five_elements(self, account, lottery, period, group, results):
         five_elements_group = group[group['玩法分类'] == '五行']
@@ -3123,10 +3214,12 @@ class ResultProcessor:
                 '区间多组': '区间多组',
                 '波色三组': '波色三组',
                 '色波三组': '色波三组',
-                # 修改为只记录全包情况
-                '色波全包': '色波全包',
-                '半波单双全包': '半波单双全包',
-                '半波大小全包': '半波大小全包',
+                # 波色相关行为
+                '色波全包': '色波全包',                   # 传统色波全包
+                '色波多组': '色波多组',                   # 色波多组投注
+                '色波中半波全包': '色波中半波全包',       # 色波玩法中的半波全包
+                '半波大小全包': '半波大小全包',           # 半波玩法中的大小全包
+                '半波单双全包': '半波单双全包',           # 半波玩法中的单双全包
                 '五行多组': '五行多组',
                 '连肖多肖': '连肖多肖',
                 '连尾多尾': '连尾多尾'
