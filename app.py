@@ -271,7 +271,8 @@ class DataProcessor:
             df_clean = pd.read_excel(
                 uploaded_file, 
                 header=start_row,
-                skiprows=range(start_row + 1) if start_row > 0 else None
+                skiprows=range(start_row + 1) if start_row > 0 else None,
+                dtype=str  # 将所有列读取为字符串，避免自动类型转换
             )
             
             # 删除起始列之前的所有列
@@ -313,7 +314,13 @@ class DataProcessor:
                         # 特别处理会员账号：保留原始格式，不去除特殊字符
                         df_clean[col] = df_clean[col].astype(str)
                         # 确保不会因为字符串操作截断内容
-                        df_clean[col] = df_clean[col].apply(lambda x: str(x).strip() if pd.notna(x) else '')
+                        df_clean[col] = df_clean[col].apply(lambda x: str(x) if pd.notna(x) else '')
+                        
+                        # 调试：显示处理前后的账号对比
+                        if st.session_state.get('debug_mode', False):
+                            st.write("🔍 会员账号处理调试:")
+                            sample_before = df_clean[col].head(5).tolist()
+                            st.write(f"处理前样本: {sample_before}")
                     else:
                         df_clean[col] = df_clean[col].astype(str).str.strip()
             
@@ -332,8 +339,74 @@ class DataProcessor:
                 with st.expander("🔍 会员账号样本（前10个）", expanded=False):
                     for i, account in enumerate(sample_accounts, 1):
                         st.write(f"{i}. '{account}' (长度: {len(str(account))})")
+
+            # 显示包含特殊字符的账号
+            if '会员账号' in df_clean.columns and st.session_state.get('debug_mode', False):
+                special_accounts = df_clean[df_clean['会员账号'].str.contains('_', na=False)]['会员账号'].unique()
+                if len(special_accounts) > 0:
+                    with st.expander("🔍 包含下划线的账号", expanded=False):
+                        st.write(f"发现 {len(special_accounts)} 个包含下划线的账号:")
+                        for account in special_accounts[:10]:  # 只显示前10个
+                            st.write(f"- '{account}'")
             
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
+
+    def debug_account_issues(self, df):
+        """调试会员账号问题"""
+        st.subheader("🔍 会员账号调试信息")
+        
+        if '会员账号' not in df.columns:
+            st.error("未找到会员账号列")
+            return
+        
+        # 显示账号统计信息
+        st.write("### 账号统计")
+        st.write(f"总记录数: {len(df)}")
+        st.write(f"唯一账号数: {df['会员账号'].nunique()}")
+        
+        # 显示账号长度分布
+        df['账号长度'] = df['会员账号'].str.len()
+        length_stats = df['账号长度'].describe()
+        st.write("### 账号长度统计")
+        st.write(length_stats)
+        
+        # 显示可能的问题账号
+        st.write("### 可能的问题账号")
+        
+        # 查找非常短的账号（可能被截断）
+        short_accounts = df[df['账号长度'] < 3]['会员账号'].unique()
+        if len(short_accounts) > 0:
+            st.warning(f"发现 {len(short_accounts)} 个过短的账号: {list(short_accounts)}")
+        
+        # 查找包含特殊截断符号的账号
+        truncated_patterns = [r'\.\.\.', r'…', r'\.$', r'_\d+$']
+        for pattern in truncated_patterns:
+            truncated = df[df['会员账号'].str.contains(pattern, na=False)]['会员账号'].unique()
+            if len(truncated) > 0:
+                st.warning(f"发现 {len(truncated)} 个可能被截断的账号（模式: {pattern}）: {list(truncated)}")
+        
+        # 查找包含下划线的账号（如 _551531wxh_）
+        underscore_accounts = df[df['会员账号'].str.contains('_', na=False)]['会员账号'].unique()
+        if len(underscore_accounts) > 0:
+            st.info(f"发现 {len(underscore_accounts)} 个包含下划线的账号: {list(underscore_accounts)}")
+        
+        # 显示前30个账号样本
+        st.write("### 账号样本（前30个）")
+        sample_accounts = df['会员账号'].head(30).tolist()
+        for i, account in enumerate(sample_accounts, 1):
+            st.write(f"{i:2d}. '{account}' (长度: {len(str(account))}, 类型: {type(account)})")
+        
+        # 显示数据类型的详细信息
+        st.write("### 数据类型信息")
+        st.write(f"会员账号列的数据类型: {df['会员账号'].dtype}")
+        
+        # 显示包含特殊字符的账号
+        st.write("### 包含特殊字符的账号")
+        special_chars = ['_', '-', '.', '@', '#', '$', '%', '&', '*']
+        for char in special_chars:
+            special_accounts = df[df['会员账号'].str.contains(char, na=False, regex=False)]['会员账号'].unique()
+            if len(special_accounts) > 0:
+                st.write(f"包含 '{char}' 的账号 ({len(special_accounts)}个): {list(special_accounts[:10])}{'...' if len(special_accounts) > 10 else ''}")
             
             # 彩种分布显示
             lottery_dist = df_clean['彩种'].value_counts()
