@@ -3770,6 +3770,9 @@ def main():
     debug_mode = st.sidebar.checkbox("调试模式", value=False)
     st.session_state.debug_mode = debug_mode
     
+    # 添加账号调试开关
+    account_debug = st.sidebar.checkbox("账号调试模式", value=False)
+    
     uploaded_file = st.sidebar.file_uploader(
         "上传Excel文件", 
         type=['xlsx', 'xls'],
@@ -3821,6 +3824,10 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
+                    # 如果开启了账号调试模式，运行调试
+                    if account_debug:
+                        processor.debug_account_issues(df_clean)
+                    
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("总记录数", len(df_clean))
