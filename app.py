@@ -1087,7 +1087,7 @@ class PlayCategoryNormalizer:
         return mapping
     
     def normalize_category(self, category):
-        """统一玩法分类名称本"""
+        """统一玩法分类名称"""
         category_str = str(category).strip()
         
         # 直接映射
@@ -1100,16 +1100,6 @@ class PlayCategoryNormalizer:
                 return value
         
         category_lower = category_str.lower()
-
-        # 快三智能匹配 - 添加点数、三军识别
-        elif any(word in category_lower for word in ['和值', '点数']):  # 点数映射为和值
-            return '和值'
-        elif any(word in category_lower for word in ['独胆', '三军']):  # 三军映射为独胆
-            return '独胆'
-        elif any(word in category_lower for word in ['二不同号']):
-            return '二不同号'
-        elif any(word in category_lower for word in ['三不同号']):
-            return '三不同号'
         
         # PK10/赛车智能匹配 - 补充更多变体
         if any(word in category_lower for word in ['定位胆_第1~5名', '定位胆1~5', '定位胆1-5']):
@@ -1180,13 +1170,13 @@ class PlayCategoryNormalizer:
             return '龙虎'
         elif any(word in category_lower for word in ['五行']):
             return '五行'
-        elif any(word in category_lower for word in ['色波', '半波']):  # 修改这里，增加半波识别
-            return '半波'  # 修改为返回 '半波'
+        elif any(word in category_lower for word in ['色波', '半波']):
+            return '半波'
         
-        # 快三智能匹配
-        elif any(word in category_lower for word in ['和值']):
+        # 快三智能匹配 - 修复这里，添加点数、三军识别
+        elif any(word in category_lower for word in ['和值', '点数']):  # 点数映射为和值
             return '和值'
-        elif any(word in category_lower for word in ['独胆']):
+        elif any(word in category_lower for word in ['独胆', '三军']):  # 三军映射为独胆
             return '独胆'
         elif any(word in category_lower for word in ['二不同号']):
             return '二不同号'
