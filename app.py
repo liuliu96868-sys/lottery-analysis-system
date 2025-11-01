@@ -2339,13 +2339,13 @@ class AnalysisEngine:
             self._add_unique_result(results, '一肖多肖', record)
     
     def _analyze_lhc_wave(self, account, lottery, period, group, results):
-        """六合彩色波检测 - 包含半波内容检测"""
+        """六合彩色波检测 - 包含半波内容检测，七色波就是色波"""
         wave_group = group[group['玩法分类'] == '色波']
         
         if wave_group.empty:
             return
         
-        # 收集所有波色投注
+        # 收集所有波色投注和半波投注
         all_wave_bets = set()
         all_banbo_bets = set()  # 半波投注
         
@@ -2373,7 +2373,7 @@ class AnalysisEngine:
             if st.session_state.get('debug_mode', False):
                 st.write(f"🔍 色波检测调试: 内容='{clean_content}', 波色={waves}, 半波项={[item for item in banbo_items if item in clean_content]}")
         
-        # 检测1: 传统色波全包（红波、蓝波、绿波）
+        # 检测1: 传统色波全包（红波、蓝波、绿波）- 七色波就是色波
         traditional_waves = {'红波', '蓝波', '绿波'}
         if traditional_waves.issubset(all_wave_bets):
             record = {
@@ -2426,22 +2426,6 @@ class AnalysisEngine:
             self._add_unique_result(results, '色波中半波全包', record)
             if st.session_state.get('debug_mode', False):
                 st.write(f"✅ 检测到色波中半波单双全包: {account}, {period}")
-        
-        # 检测3: 色波多组投注（超过阈值）
-        if len(all_wave_bets) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '色波',
-                '投注波色数': len(all_wave_bets),
-                '投注波色': sorted(list(all_wave_bets)),
-                '投注内容': ', '.join(sorted(all_wave_bets)),
-                '排序权重': self._calculate_sort_weight({'投注波色数': len(all_wave_bets)}, '色波多组')
-            }
-            self._add_unique_result(results, '色波多组', record)
-            if st.session_state.get('debug_mode', False):
-                st.write(f"✅ 检测到色波多组投注: {account}, {period}, 波色数量={len(all_wave_bets)}")
     
     def _analyze_lhc_five_elements(self, account, lottery, period, group, results):
         five_elements_group = group[group['玩法分类'] == '五行']
