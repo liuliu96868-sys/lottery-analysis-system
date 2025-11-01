@@ -86,6 +86,7 @@ THRESHOLD_CONFIG = {
         'multi_number': 5,
         'hezhi_multi_number': 13,
         'value_size_contradiction': 5
+        'dudan_multi_number': 5
     },
     'LHC': {
         'number_play': 31,
@@ -2771,7 +2772,7 @@ class AnalysisEngine:
                 st.write(f"🔍 号码提取结果: {numbers}, 数量={len(numbers)}")
             
             # 检测单个记录的多号码（通常不会触发，因为三军是分开投注的）
-            if len(numbers) >= 4:
+            if len(numbers) >= 5:
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -2796,22 +2797,15 @@ class AnalysisEngine:
         
         # 聚合同一账户同一期号的所有独胆投注
         all_numbers = set()
-        all_contents = []
         
         for _, row in dudan_group.iterrows():
             content = str(row['内容'])
             numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
             all_numbers.update(numbers)
-            all_contents.append(content)
         
-        # 调试信息
-        if st.session_state.get('debug_mode', False):
-            st.write(f"🔍 独胆/三军聚合检测: 账号={account}, 期号={period}")
-            st.write(f"🔍 所有投注内容: {all_contents}")
-            st.write(f"🔍 聚合号码: {sorted(all_numbers)}, 数量={len(all_numbers)}")
-        
-        # 检测聚合后的多号码（4个或以上号码）
-        if len(all_numbers) >= 4:
+        # 使用配置的阈值
+        threshold = THRESHOLD_CONFIG['K3'].get('dudan_multi_number', 3)
+        if len(all_numbers) >= threshold:
             record = {
                 '会员账号': account,
                 '彩种': lottery,
@@ -3687,7 +3681,9 @@ def main():
     
     with st.sidebar.expander("快三系列阈值"):
         k3_hezhi = st.slider("和值多码阈值", 5, 20, THRESHOLD_CONFIG['K3']['hezhi_multi_number'])
+        k3_dudan_threshold = st.slider("独胆多码阈值", 2, 6, 5)
         THRESHOLD_CONFIG['K3']['hezhi_multi_number'] = k3_hezhi
+        THRESHOLD_CONFIG['K3']['dudan_multi_number'] = k3_dudan_threshold
     
     with st.sidebar.expander("三色彩系列阈值"):
         three_color_zhengma = st.slider("正码多码阈值", 5, 15, THRESHOLD_CONFIG['THREE_COLOR']['zhengma_multi'])
