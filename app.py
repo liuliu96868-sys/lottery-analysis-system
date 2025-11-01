@@ -919,6 +919,10 @@ class PlayCategoryNormalizer:
             # '二同号': '二同号',
             # '三同号': '三同号',
             '独胆': '独胆',
+
+            # 新增点数映射
+            '点数': '和值',
+            '三军': '独胆',
             
             # 六合彩玩法完整映射 - 尾数独立映射
             '特码': '特码',
@@ -1097,6 +1101,16 @@ class PlayCategoryNormalizer:
                 return value
         
         category_lower = category_str.lower()
+
+        # 快三智能匹配 - 添加点数、三军识别
+        elif any(word in category_lower for word in ['和值', '点数']):  # 点数映射为和值
+            return '和值'
+        elif any(word in category_lower for word in ['独胆', '三军']):  # 三军映射为独胆
+            return '独胆'
+        elif any(word in category_lower for word in ['二不同号']):
+            return '二不同号'
+        elif any(word in category_lower for word in ['三不同号']):
+            return '三不同号'
         
         # PK10/赛车智能匹配 - 补充更多变体
         if any(word in category_lower for word in ['定位胆_第1~5名', '定位胆1~5', '定位胆1-5']):
