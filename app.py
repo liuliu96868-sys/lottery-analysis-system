@@ -2614,11 +2614,10 @@ class AnalysisEngine:
         
         for (account, lottery, period), group in grouped:
             self._analyze_k3_hezhi_enhanced(account, lottery, period, group, results)
-            self._analyze_k3_dudan(account, lottery, period, group, results)
+            self._analyze_k3_dudan(account, lottery, period, group, results)  # 原有的单个记录检测
+            self._analyze_k3_dudan_aggregated(account, lottery, period, group, results)  # 新增聚合检测
             self._analyze_k3_different(account, lottery, period, group, results)
             self._analyze_k3_two_sides_plays(account, lottery, period, group, results)
-            # 注释掉同号玩法的检测
-            # self._analyze_k3_tonghao_plays(account, lottery, period, group, results)
         
         return results
     
@@ -2753,36 +2752,44 @@ class AnalysisEngine:
                 }
                 self._add_unique_result(results, '和值大小矛盾', record)
     
-    def _analyze_k3_dudan(self, account, lottery, period, group, results):
-        """分析快三独胆玩法 - 增强三军检测"""
+    def _analyze_k3_dudan_aggregated(self, account, lottery, period, group, results):
+        """分析快三独胆玩法 - 按账户期号聚合检测"""
         dudan_group = group[group['玩法分类'] == '独胆']
+        
+        if dudan_group.empty:
+            return
+        
+        # 聚合同一账户同一期号的所有独胆投注
+        all_numbers = set()
+        all_contents = []
         
         for _, row in dudan_group.iterrows():
             content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 调试信息
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 独胆/三军检测: 账号={account}, 期号={period}, 玩法={category}, 内容={content}")
-            
             numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
+            all_numbers.update(numbers)
+            all_contents.append(content)
+        
+        # 调试信息
+        if st.session_state.get('debug_mode', False):
+            st.write(f"🔍 独胆/三军聚合检测: 账号={account}, 期号={period}")
+            st.write(f"🔍 所有投注内容: {all_contents}")
+            st.write(f"🔍 聚合号码: {sorted(all_numbers)}, 数量={len(all_numbers)}")
+        
+        # 检测聚合后的多号码（4个或以上号码）
+        if len(all_numbers) >= 4:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '独胆',
+                '号码数量': len(all_numbers),
+                '投注内容': f"聚合投注: {', '.join([str(num) for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '独胆多码')
+            }
+            self._add_unique_result(results, '独胆多码', record)
             
-            # 调试信息
             if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 号码提取结果: {numbers}, 数量={len(numbers)}")
-            
-            # 降低阈值或保持4个号码
-            if len(numbers) >= 4:  # 可以调整为3或保持4
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '独胆',
-                    '号码数量': len(numbers),
-                    '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '独胆多码')
-                }
-                self._add_unique_result(results, '独胆多码', record)
+                st.success(f"✅ 检测到聚合独胆多码: {account}, {period}, 聚合号码数量={len(all_numbers)}")
                 
                 # 调试信息
                 if st.session_state.get('debug_mode', False):
