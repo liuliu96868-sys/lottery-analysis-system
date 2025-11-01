@@ -2751,6 +2751,41 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值大小矛盾')
                 }
                 self._add_unique_result(results, '和值大小矛盾', record)
+
+    def _analyze_k3_dudan(self, account, lottery, period, group, results):
+        """分析快三独胆玩法 - 单个记录检测"""
+        dudan_group = group[group['玩法分类'] == '独胆']
+        
+        for _, row in dudan_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 调试信息
+            if st.session_state.get('debug_mode', False):
+                st.write(f"🔍 独胆/三军检测: 账号={account}, 期号={period}, 玩法={category}, 内容={content}")
+            
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
+            
+            # 调试信息
+            if st.session_state.get('debug_mode', False):
+                st.write(f"🔍 号码提取结果: {numbers}, 数量={len(numbers)}")
+            
+            # 检测单个记录的多号码（通常不会触发，因为三军是分开投注的）
+            if len(numbers) >= 4:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '独胆',
+                    '号码数量': len(numbers),
+                    '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '独胆多码')
+                }
+                self._add_unique_result(results, '独胆多码', record)
+                
+                # 调试信息
+                if st.session_state.get('debug_mode', False):
+                    st.success(f"✅ 检测到独胆多码: {account}, {period}, 号码数量={len(numbers)}")
     
     def _analyze_k3_dudan_aggregated(self, account, lottery, period, group, results):
         """分析快三独胆玩法 - 按账户期号聚合检测"""
@@ -2790,10 +2825,6 @@ class AnalysisEngine:
             
             if st.session_state.get('debug_mode', False):
                 st.success(f"✅ 检测到聚合独胆多码: {account}, {period}, 聚合号码数量={len(all_numbers)}")
-                
-                # 调试信息
-                if st.session_state.get('debug_mode', False):
-                    st.success(f"✅ 检测到独胆多码: {account}, {period}, 号码数量={len(numbers)}")
     
     def _analyze_k3_different(self, account, lottery, period, group, results):
         different_categories = ['二不同号', '三不同号']
