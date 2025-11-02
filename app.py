@@ -3968,6 +3968,7 @@ def main():
                     status_text = st.empty()
                     
                     all_results = {}
+                    # 明确定义 lottery_types 变量
                     lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩']
                     
                     for i, lottery_type in enumerate(lottery_types):
@@ -3989,7 +3990,11 @@ def main():
                     status_text.text("分析完成！")
                     
                     # 统计结果
-                    total_findings = sum(sum(len(records) for records in results.values()) for results in all_results.values())
+                    total_findings = 0
+                    for lottery_type, results in all_results.items():
+                        type_count = sum(len(records) for records in results.values())
+                        total_findings += type_count
+                    
                     with col4:
                         st.metric("可疑记录数", total_findings)
                     
