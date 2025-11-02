@@ -288,7 +288,8 @@ class DataProcessor:
                     sample_accounts = df_clean[col].head(10).tolist()
                     for i, account in enumerate(sample_accounts, 1):
                         account_str = str(account)
-                        st.write(f"{i}. 列 '{col}' 中的账号: '{account_str}' (长度: {len(account_str)})")
+                        # 使用代码块格式确保特殊字符正确显示
+                        st.code(f"{i}. 列 '{col}' 中的账号: {account_str} (长度: {len(account_str)})")
                         # 使用repr显示原始字符串，包括不可见字符
                         st.write(f"   原始表示: {repr(account_str)}")
                         # 显示每个字符的ASCII码
@@ -367,12 +368,15 @@ class DataProcessor:
             
             st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
             
+            # 在 clean_data 方法中，修改显示会员账号样本的部分：
+            
             # 显示会员账号样本，用于调试
             if '会员账号' in df_clean.columns:
                 sample_accounts = df_clean['会员账号'].head(10).tolist()
                 with st.expander("🔍 会员账号样本（前10个）", expanded=False):
                     for i, account in enumerate(sample_accounts, 1):
-                        st.write(f"{i}. '{account}' (长度: {len(str(account))})")
+                        # 使用代码块格式确保特殊字符正确显示
+                        st.code(f"{i}. {account} (长度: {len(account)})")
                         st.write(f"   详细表示: {repr(account)}")
             
             # 显示包含特殊字符的账号
@@ -382,7 +386,7 @@ class DataProcessor:
                     with st.expander("🔍 包含下划线的账号", expanded=False):
                         st.write(f"发现 {len(special_accounts)} 个包含下划线的账号:")
                         for account in special_accounts[:10]:  # 只显示前10个
-                            st.write(f"- '{account}' (详细: {repr(account)})")
+                            st.code(f"  {account}")
                 
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
             
@@ -437,15 +441,15 @@ class DataProcessor:
         if len(underscore_accounts) > 0:
             st.info(f"发现 {len(underscore_accounts)} 个包含下划线的账号:")
             for account in underscore_accounts:
-                st.write(f"- '{account}' (长度: {len(account)})")
-        else:
-            st.warning("未发现包含下划线的账号")
+                # 使用HTML或Markdown转义来确保下划线正确显示
+                st.write(f"- `{account}` (长度: {len(account)}, 显示: '{account}')")
         
-        # 显示前30个账号样本
+        # 显示前30个账号样本 - 使用代码块格式确保正确显示
         st.write("### 账号样本（前30个）")
         sample_accounts = df['会员账号'].head(30).tolist()
         for i, account in enumerate(sample_accounts, 1):
-            st.write(f"{i:2d}. '{account}' (长度: {len(str(account))}, 类型: {type(account)})")
+            # 使用代码块格式显示账号，确保特殊字符正确显示
+            st.code(f"{i:2d}. {account} (长度: {len(account)})")
         
         # 显示数据类型的详细信息
         st.write("### 数据类型信息")
@@ -457,15 +461,11 @@ class DataProcessor:
         for char in special_chars:
             special_accounts = df[df['会员账号'].str.contains(char, na=False, regex=False)]['会员账号'].unique()
             if len(special_accounts) > 0:
-                st.write(f"包含 '{char}' 的账号 ({len(special_accounts)}个): {list(special_accounts[:10])}{'...' if len(special_accounts) > 10 else ''}")
-        
-        # 特别检查账号长度异常的账号
-        st.write("### 账号长度异常检查")
-        unusual_length_accounts = df[(df['账号长度'] < 5) | (df['账号长度'] > 20)]['会员账号'].unique()
-        if len(unusual_length_accounts) > 0:
-            st.warning(f"发现 {len(unusual_length_accounts)} 个长度异常的账号:")
-            for account in unusual_length_accounts[:10]:
-                st.write(f"- '{account}' (长度: {len(account)})")
+                st.write(f"包含 '{char}' 的账号 ({len(special_accounts)}个):")
+                for account in special_accounts[:10]:
+                    st.code(f"  {account}")
+                if len(special_accounts) > 10:
+                    st.write(f"  ... 还有 {len(special_accounts) - 10} 个")
 
 # ==================== 内容解析器 ====================
 class ContentParser:
