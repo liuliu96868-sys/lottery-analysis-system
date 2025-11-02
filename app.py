@@ -3643,7 +3643,6 @@ class ResultProcessor:
                 
                 with col1:
                     st.subheader(f"{account_index}. {account_display}")  # 使用转义后的账号
-                    st.write(f"**涉及彩种:** {', '.join(lottery_types[:5])}{'...' if len(lottery_types) > 5 else ''}")
                 
                 with col2:
                     violation_text = "、".join(violation_types[:5])
