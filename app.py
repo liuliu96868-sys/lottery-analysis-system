@@ -375,9 +375,11 @@ class DataProcessor:
                 sample_accounts = df_clean['会员账号'].head(10).tolist()
                 with st.expander("🔍 会员账号样本（前10个）", expanded=False):
                     for i, account in enumerate(sample_accounts, 1):
-                        # 使用代码块格式确保特殊字符正确显示
-                        st.code(f"{i}. {account} (长度: {len(account)})")
-                        st.write(f"   详细表示: {repr(account)}")
+                        # 使用HTML或Markdown转义来确保特殊字符正确显示
+                        account_display = account.replace('_', '\\_')  # 转义下划线
+                        st.markdown(f"{i}. `{account_display}` (长度: {len(account)})")
+                        # 同时显示原始表示
+                        st.write(f"   原始表示: {repr(account)}")
             
             # 显示包含特殊字符的账号
             if '会员账号' in df_clean.columns and st.session_state.get('debug_mode', False):
@@ -386,7 +388,8 @@ class DataProcessor:
                     with st.expander("🔍 包含下划线的账号", expanded=False):
                         st.write(f"发现 {len(special_accounts)} 个包含下划线的账号:")
                         for account in special_accounts[:10]:  # 只显示前10个
-                            st.code(f"  {account}")
+                            account_display = account.replace('_', '\\_')  # 转义下划线
+                            st.markdown(f"  `{account_display}`")
                 
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
             
@@ -441,15 +444,17 @@ class DataProcessor:
         if len(underscore_accounts) > 0:
             st.info(f"发现 {len(underscore_accounts)} 个包含下划线的账号:")
             for account in underscore_accounts:
-                # 使用HTML或Markdown转义来确保下划线正确显示
-                st.write(f"- `{account}` (长度: {len(account)}, 显示: '{account}')")
+                # 使用Markdown转义来确保下划线正确显示
+                account_display = account.replace('_', '\\_')  # 转义下划线
+                st.markdown(f"- `{account_display}` (长度: {len(account)}, 显示: '{account}')")
         
-        # 显示前30个账号样本 - 使用代码块格式确保正确显示
+        # 显示前30个账号样本 - 使用Markdown格式确保正确显示
         st.write("### 账号样本（前30个）")
         sample_accounts = df['会员账号'].head(30).tolist()
         for i, account in enumerate(sample_accounts, 1):
-            # 使用代码块格式显示账号，确保特殊字符正确显示
-            st.code(f"{i:2d}. {account} (长度: {len(account)})")
+            # 使用Markdown格式显示账号，确保特殊字符正确显示
+            account_display = account.replace('_', '\\_')  # 转义下划线
+            st.markdown(f"{i:2d}. `{account_display}` (长度: {len(account)})")
         
         # 显示数据类型的详细信息
         st.write("### 数据类型信息")
@@ -3630,16 +3635,14 @@ class ResultProcessor:
                                reverse=True)
         
         for account_index, (account, data) in enumerate(sorted_accounts, 1):
-            total_periods = len(data['periods'])
-            total_violations = data['violation_count']
-            violation_types = list(data['violation_types'])
-            lottery_types = list(data['lottery_types'])
+            # 转义账号中的下划线
+            account_display = account.replace('_', '\\_')
             
             with st.container():
                 col1, col2, col3 = st.columns([3, 2, 1])
                 
                 with col1:
-                    st.subheader(f"{account_index}. {account}")
+                    st.subheader(f"{account_index}. {account_display}")  # 使用转义后的账号
                     st.write(f"**涉及彩种:** {', '.join(lottery_types[:5])}{'...' if len(lottery_types) > 5 else ''}")
                 
                 with col2:
