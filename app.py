@@ -278,36 +278,6 @@ class DataProcessor:
                 converters={}  # 为空，让pandas不要进行任何转换
             )
             
-            # 立即检查原始数据中的账号 - 使用更详细的调试
-            st.write("🔍 数据读取后立即检查账号（最早期阶段）:")
-            found_account_col = False
-            for col in df_clean.columns:
-                if any(keyword in col for keyword in ['账号', '账户', '会员', '用户']):
-                    found_account_col = True
-                    st.write(f"找到账号相关列: '{col}'")
-                    sample_accounts = df_clean[col].head(10).tolist()
-                    for i, account in enumerate(sample_accounts, 1):
-                        account_str = str(account)
-                        # 使用代码块格式确保特殊字符正确显示
-                        st.code(f"{i}. 列 '{col}' 中的账号: {account_str} (长度: {len(account_str)})")
-                        # 使用repr显示原始字符串，包括不可见字符
-                        st.write(f"   原始表示: {repr(account_str)}")
-                        # 显示每个字符的ASCII码
-                        st.write(f"   字符分析: {[f'{char}({ord(char)})' for char in account_str]}")
-                        # 特别检查下划线
-                        if '_' in account_str:
-                            st.success(f"   ✅ 发现下划线在位置: {[i for i, char in enumerate(account_str) if char == '_']}")
-                        else:
-                            st.warning("   ⚠️ 未发现下划线")
-            
-            if not found_account_col:
-                st.warning("未找到账号相关列，显示所有列:")
-                for col in df_clean.columns:
-                    st.write(f"列: '{col}'")
-                    sample_values = df_clean[col].head(5).tolist()
-                    for i, value in enumerate(sample_values, 1):
-                        st.write(f"  {i}. '{value}' (长度: {len(str(value))}, 原始: {repr(value)})")
-            
             # 删除起始列之前的所有列
             if start_col > 0:
                 df_clean = df_clean.iloc[:, start_col:]
@@ -348,16 +318,16 @@ class DataProcessor:
                         df_clean[col] = df_clean[col].apply(
                             lambda x: str(x) if pd.notna(x) else ''
                         )
-                        
-                        # 调试：显示处理前后的账号对比
-                        if st.session_state.get('debug_mode', False):
-                            st.write("🔍 会员账号处理调试:")
-                            sample_before = df_clean[col].head(5).tolist()
-                            for i, account in enumerate(sample_before, 1):
-                                st.write(f"{i}. 处理后账号: '{account}' (长度: {len(str(account))})")
-                                st.write(f"   处理后表示: {repr(account)}")
                     else:
                         df_clean[col] = df_clean[col].astype(str).str.strip()
+            
+            # 调试信息放在循环外部
+            if st.session_state.get('debug_mode', False) and '会员账号' in df_clean.columns:
+                st.write("🔍 会员账号处理调试:")
+                sample_before = df_clean['会员账号'].head(5).tolist()
+                for i, account in enumerate(sample_before, 1):
+                    st.write(f"{i}. 处理后账号: '{account}' (长度: {len(str(account))})")
+                    st.write(f"   处理后表示: {repr(account)}")
             
             # 修复期号格式：去掉.0
             if '期号' in df_clean.columns:
@@ -369,27 +339,6 @@ class DataProcessor:
             st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
             
             # 在 clean_data 方法中，修改显示会员账号样本的部分：
-            
-            # 显示会员账号样本，用于调试
-            if '会员账号' in df_clean.columns:
-                sample_accounts = df_clean['会员账号'].head(10).tolist()
-                with st.expander("🔍 会员账号样本（前10个）", expanded=False):
-                    for i, account in enumerate(sample_accounts, 1):
-                        # 使用HTML或Markdown转义来确保特殊字符正确显示
-                        account_display = account.replace('_', '\\_')  # 转义下划线
-                        st.markdown(f"{i}. `{account_display}` (长度: {len(account)})")
-                        # 同时显示原始表示
-                        st.write(f"   原始表示: {repr(account)}")
-            
-            # 显示包含特殊字符的账号
-            if '会员账号' in df_clean.columns and st.session_state.get('debug_mode', False):
-                special_accounts = df_clean[df_clean['会员账号'].str.contains('_', na=False)]['会员账号'].unique()
-                if len(special_accounts) > 0:
-                    with st.expander("🔍 包含下划线的账号", expanded=False):
-                        st.write(f"发现 {len(special_accounts)} 个包含下划线的账号:")
-                        for account in special_accounts[:10]:  # 只显示前10个
-                            account_display = account.replace('_', '\\_')  # 转义下划线
-                            st.markdown(f"  `{account_display}`")
                 
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
             
@@ -2857,8 +2806,11 @@ class AnalysisEngine:
         
         for (account, lottery, period), group in grouped:
             self._analyze_k3_hezhi_enhanced(account, lottery, period, group, results)
-            self._analyze_k3_dudan(account, lottery, period, group, results)  # 原有的单个记录检测
-            self._analyze_k3_dudan_aggregated(account, lottery, period, group, results)  # 新增聚合检测
+            # 先进行聚合检测（更严格的检测）
+            self._analyze_k3_dudan_aggregated(account, lottery, period, group, results)
+            # 如果聚合检测没有发现问题，再进行单个记录检测
+            if not any('独胆多码' in key for key in results.keys()):
+                self._analyze_k3_dudan(account, lottery, period, group, results)
             self._analyze_k3_different(account, lottery, period, group, results)
             self._analyze_k3_two_sides_plays(account, lottery, period, group, results)
         
@@ -3787,10 +3739,6 @@ class Exporter:
             '色波红绿投注': ('投注波色数', '投注内容'),
 
              # 时时彩相关
-            '斗牛多码': ('号码数量', '投注内容'),
-            '定位胆多码': ('号码数量', '投注内容'),
-
-           # 时时彩相关
             '斗牛多码': ('号码数量', '投注内容'),
             '定位胆多码': ('号码数量', '投注内容'),
             
