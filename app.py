@@ -3594,21 +3594,18 @@ class ResultProcessor:
                 col1, col2, col3 = st.columns([3, 2, 1])
                 
                 with col1:
-                    st.subheader(f"{account_index}. {account_display}")  # 使用转义后的账号
-                    # 使用 data 中的 lottery_types
+                    st.subheader(f"{account_index}. {account_display}")
                     lottery_types_list = list(data['lottery_types'])
                     st.write(f"**涉及彩种:** {', '.join(lottery_types_list[:5])}{'...' if len(lottery_types_list) > 5 else ''}")
-
+    
                 with col2:
-                    # 使用 data 中的 violation_types
                     violation_types_list = list(data['violation_types'])
                     violation_text = "、".join(violation_types_list[:5])
                     if len(violation_types_list) > 5:
                         violation_text += f" 等{len(violation_types_list)}种"
                     st.write(f"**违规内容:** {violation_text}")
-
+    
                 with col3:
-                    # 使用 data 中的 periods 和 violation_count
                     st.write(f"**违规期数:** {len(data['periods'])}")
                     st.write(f"**违规次数:** {data['violation_count']}")
                 
@@ -3630,11 +3627,14 @@ class ResultProcessor:
                             if representative_records:
                                 st.write(f"**{violation_type}** ({len(type_violations)}次)")
                                 
-                                # 准备显示数据
+                                # 准备显示数据 - 特别处理期号显示
                                 display_data = []
                                 for record in representative_records:
+                                    # 处理期号显示，确保可搜索
+                                    period_display = self._format_period_for_display(record['期号'])
+                                    
                                     display_record = {
-                                        '期号': record['期号'],
+                                        '期号': period_display,  # 使用格式化后的期号
                                         '玩法分类': record['玩法分类'],
                                         '违规类型': violation_type,
                                         '详细信息': record.get('详细信息', ''),
@@ -3659,6 +3659,30 @@ class ResultProcessor:
                                     st.info(f"还有 {other_records_count} 条相关记录...")
                 
                 st.markdown("---")
+    
+    def _format_period_for_display(self, period):
+        """格式化期号以确保可搜索"""
+        if not period or pd.isna(period):
+            return ""
+        
+        period_str = str(period).strip()
+        
+        # 移除可能的格式化字符
+        period_str = period_str.replace('\n', '').replace('\t', '').replace(' ', '')
+        
+        # 处理科学计数法格式
+        if 'e' in period_str.lower() or 'e+' in period_str.lower():
+            try:
+                # 尝试转换为整数
+                period_str = str(int(float(period_str)))
+            except (ValueError, TypeError):
+                pass
+        
+        # 处理浮点数格式
+        if '.' in period_str and period_str.endswith('.0'):
+            period_str = period_str[:-2]
+        
+        return period_str
 
 # ==================== 导出功能 ====================
 class Exporter:
