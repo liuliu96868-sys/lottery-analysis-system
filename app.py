@@ -267,21 +267,28 @@ class DataProcessor:
             start_row, start_col = self.find_data_start(df_temp)
             st.info(f"数据起始位置: 第{start_row+1}行, 第{start_col+1}列")
             
-            # 重新读取数据 - 添加参数避免自动截断
+            # 重新读取数据 - 使用更精确的文本处理
             df_clean = pd.read_excel(
                 uploaded_file, 
                 header=start_row,
                 skiprows=range(start_row + 1) if start_row > 0 else None,
-                dtype=str  # 将所有列读取为字符串，避免自动类型转换
+                dtype=str,  # 将所有列读取为字符串
+                na_filter=False,  # 不过滤空值，避免特殊处理
+                keep_default_na=False  # 不使用默认的NA值处理
             )
             
-            # 立即检查原始数据中的账号
-            if '会员账号' in df_clean.columns or any('账号' in col for col in df_clean.columns):
-                account_col = '会员账号' if '会员账号' in df_clean.columns else [col for col in df_clean.columns if '账号' in col][0]
-                st.write("🔍 数据读取后立即检查账号:")
-                sample_accounts = df_clean[account_col].head(10).tolist()
-                for i, account in enumerate(sample_accounts, 1):
-                    st.write(f"{i}. 原始账号: '{account}' (长度: {len(str(account))})")
+            # 立即检查原始数据中的账号 - 使用更详细的调试
+            st.write("🔍 数据读取后立即检查账号（最早期阶段）:")
+            for col in df_clean.columns:
+                if any(keyword in col for keyword in ['账号', '账户', '会员', '用户']):
+                    st.write(f"找到账号相关列: '{col}'")
+                    sample_accounts = df_clean[col].head(10).tolist()
+                    for i, account in enumerate(sample_accounts, 1):
+                        st.write(f"{i}. 列 '{col}' 中的账号: '{account}' (长度: {len(str(account))})")
+                        # 使用repr显示原始字符串，包括不可见字符
+                        st.write(f"   原始表示: {repr(account)}")
+                        # 显示每个字符的ASCII码
+                        st.write(f"   字符分析: {[f'{char}({ord(char)})' for char in str(account)]}")
             
             # 删除起始列之前的所有列
             if start_col > 0:
@@ -315,20 +322,22 @@ class DataProcessor:
             df_clean = df_clean.dropna(subset=[col for col in self.required_columns if col in df_clean.columns])
             df_clean = df_clean.dropna(axis=1, how='all')
             
-            # 数据类型转换 - 修改会员账号处理
+            # 数据类型转换 - 特别小心处理会员账号
             for col in self.required_columns:
                 if col in df_clean.columns:
                     if col == '会员账号':
-                        # 特别处理会员账号：保留原始格式，不去除特殊字符
-                        df_clean[col] = df_clean[col].astype(str)
-                        # 确保不会因为字符串操作截断内容
-                        df_clean[col] = df_clean[col].apply(lambda x: str(x) if pd.notna(x) else '')
+                        # 特别处理会员账号：确保不丢失任何字符
+                        df_clean[col] = df_clean[col].apply(
+                            lambda x: str(x) if pd.notna(x) else ''
+                        )
                         
                         # 调试：显示处理前后的账号对比
                         if st.session_state.get('debug_mode', False):
                             st.write("🔍 会员账号处理调试:")
                             sample_before = df_clean[col].head(5).tolist()
-                            st.write(f"处理前样本: {sample_before}")
+                            for i, account in enumerate(sample_before, 1):
+                                st.write(f"{i}. 处理后账号: '{account}' (长度: {len(str(account))})")
+                                st.write(f"   处理后表示: {repr(account)}")
                     else:
                         df_clean[col] = df_clean[col].astype(str).str.strip()
             
@@ -347,6 +356,7 @@ class DataProcessor:
                 with st.expander("🔍 会员账号样本（前10个）", expanded=False):
                     for i, account in enumerate(sample_accounts, 1):
                         st.write(f"{i}. '{account}' (长度: {len(str(account))})")
+                        st.write(f"   详细表示: {repr(account)}")
             
             # 显示包含特殊字符的账号
             if '会员账号' in df_clean.columns and st.session_state.get('debug_mode', False):
@@ -355,8 +365,8 @@ class DataProcessor:
                     with st.expander("🔍 包含下划线的账号", expanded=False):
                         st.write(f"发现 {len(special_accounts)} 个包含下划线的账号:")
                         for account in special_accounts[:10]:  # 只显示前10个
-                            st.write(f"- '{account}'")
-            
+                            st.write(f"- '{account}' (详细: {repr(account)})")
+                
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
             
             # 彩种分布显示
