@@ -267,28 +267,45 @@ class DataProcessor:
             start_row, start_col = self.find_data_start(df_temp)
             st.info(f"数据起始位置: 第{start_row+1}行, 第{start_col+1}列")
             
-            # 重新读取数据 - 使用更精确的文本处理
+            # 重新读取数据 - 特别处理常规格式单元格
             df_clean = pd.read_excel(
                 uploaded_file, 
                 header=start_row,
                 skiprows=range(start_row + 1) if start_row > 0 else None,
                 dtype=str,  # 将所有列读取为字符串
-                na_filter=False,  # 不过滤空值，避免特殊处理
-                keep_default_na=False  # 不使用默认的NA值处理
+                na_filter=False,  # 不过滤空值
+                keep_default_na=False,  # 不使用默认的NA值处理
+                converters={}  # 为空，让pandas不要进行任何转换
             )
             
             # 立即检查原始数据中的账号 - 使用更详细的调试
             st.write("🔍 数据读取后立即检查账号（最早期阶段）:")
+            found_account_col = False
             for col in df_clean.columns:
                 if any(keyword in col for keyword in ['账号', '账户', '会员', '用户']):
+                    found_account_col = True
                     st.write(f"找到账号相关列: '{col}'")
                     sample_accounts = df_clean[col].head(10).tolist()
                     for i, account in enumerate(sample_accounts, 1):
-                        st.write(f"{i}. 列 '{col}' 中的账号: '{account}' (长度: {len(str(account))})")
+                        account_str = str(account)
+                        st.write(f"{i}. 列 '{col}' 中的账号: '{account_str}' (长度: {len(account_str)})")
                         # 使用repr显示原始字符串，包括不可见字符
-                        st.write(f"   原始表示: {repr(account)}")
+                        st.write(f"   原始表示: {repr(account_str)}")
                         # 显示每个字符的ASCII码
-                        st.write(f"   字符分析: {[f'{char}({ord(char)})' for char in str(account)]}")
+                        st.write(f"   字符分析: {[f'{char}({ord(char)})' for char in account_str]}")
+                        # 特别检查下划线
+                        if '_' in account_str:
+                            st.success(f"   ✅ 发现下划线在位置: {[i for i, char in enumerate(account_str) if char == '_']}")
+                        else:
+                            st.warning("   ⚠️ 未发现下划线")
+            
+            if not found_account_col:
+                st.warning("未找到账号相关列，显示所有列:")
+                for col in df_clean.columns:
+                    st.write(f"列: '{col}'")
+                    sample_values = df_clean[col].head(5).tolist()
+                    for i, value in enumerate(sample_values, 1):
+                        st.write(f"  {i}. '{value}' (长度: {len(str(value))}, 原始: {repr(value)})")
             
             # 删除起始列之前的所有列
             if start_col > 0:
