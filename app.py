@@ -275,6 +275,14 @@ class DataProcessor:
                 dtype=str  # 将所有列读取为字符串，避免自动类型转换
             )
             
+            # 立即检查原始数据中的账号
+            if '会员账号' in df_clean.columns or any('账号' in col for col in df_clean.columns):
+                account_col = '会员账号' if '会员账号' in df_clean.columns else [col for col in df_clean.columns if '账号' in col][0]
+                st.write("🔍 数据读取后立即检查账号:")
+                sample_accounts = df_clean[account_col].head(10).tolist()
+                for i, account in enumerate(sample_accounts, 1):
+                    st.write(f"{i}. 原始账号: '{account}' (长度: {len(str(account))})")
+            
             # 删除起始列之前的所有列
             if start_col > 0:
                 df_clean = df_clean.iloc[:, start_col:]
@@ -400,7 +408,11 @@ class DataProcessor:
         # 查找包含下划线的账号（如 _551531wxh_）
         underscore_accounts = df[df['会员账号'].str.contains('_', na=False)]['会员账号'].unique()
         if len(underscore_accounts) > 0:
-            st.info(f"发现 {len(underscore_accounts)} 个包含下划线的账号: {list(underscore_accounts)}")
+            st.info(f"发现 {len(underscore_accounts)} 个包含下划线的账号:")
+            for account in underscore_accounts:
+                st.write(f"- '{account}' (长度: {len(account)})")
+        else:
+            st.warning("未发现包含下划线的账号")
         
         # 显示前30个账号样本
         st.write("### 账号样本（前30个）")
@@ -419,6 +431,14 @@ class DataProcessor:
             special_accounts = df[df['会员账号'].str.contains(char, na=False, regex=False)]['会员账号'].unique()
             if len(special_accounts) > 0:
                 st.write(f"包含 '{char}' 的账号 ({len(special_accounts)}个): {list(special_accounts[:10])}{'...' if len(special_accounts) > 10 else ''}")
+        
+        # 特别检查账号长度异常的账号
+        st.write("### 账号长度异常检查")
+        unusual_length_accounts = df[(df['账号长度'] < 5) | (df['账号长度'] > 20)]['会员账号'].unique()
+        if len(unusual_length_accounts) > 0:
+            st.warning(f"发现 {len(unusual_length_accounts)} 个长度异常的账号:")
+            for account in unusual_length_accounts[:10]:
+                st.write(f"- '{account}' (长度: {len(account)})")
 
 # ==================== 内容解析器 ====================
 class ContentParser:
