@@ -3643,6 +3643,7 @@ class ResultProcessor:
                 
                 with col1:
                     st.subheader(f"{account_index}. {account_display}")  # 使用转义后的账号
+                    st.write(f"**涉及彩种:** {', '.join(lottery_types[:5])}{'...' if len(lottery_types) > 5 else ''}")
                 
                 with col2:
                     violation_text = "、".join(violation_types[:5])
@@ -3962,8 +3963,32 @@ def main():
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
                     # 分析投注模式
-                    all_results = analyzer.analyze_all_patterns(df_normalized)
+                    # 使用进度条
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
+                    all_results = {}
+                    lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩']
+                    
+                    for i, lottery_type in enumerate(lottery_types):
+                        status_text.text(f"正在分析 {lottery_type}...")
+                        
+                        if lottery_type == 'PK拾赛车':
+                            all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
+                        elif lottery_type == '时时彩':
+                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
+                        elif lottery_type == '六合彩':
+                            all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
+                        elif lottery_type == '快三':
+                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
+                        elif lottery_type == '三色彩':
+                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
+                        
+                        progress_bar.progress((i + 1) / len(lottery_types))
+                    
+                    status_text.text("分析完成！")
+                    
+                    # 统计结果
                     total_findings = sum(sum(len(records) for records in results.values()) for results in all_results.values())
                     with col4:
                         st.metric("可疑记录数", total_findings)
