@@ -3643,17 +3643,22 @@ class ResultProcessor:
                 
                 with col1:
                     st.subheader(f"{account_index}. {account_display}")  # 使用转义后的账号
-                    st.write(f"**涉及彩种:** {', '.join(lottery_types[:5])}{'...' if len(lottery_types) > 5 else ''}")
-                
+                    # 使用 data 中的 lottery_types
+                    lottery_types_list = list(data['lottery_types'])
+                    st.write(f"**涉及彩种:** {', '.join(lottery_types_list[:5])}{'...' if len(lottery_types_list) > 5 else ''}")
+
                 with col2:
-                    violation_text = "、".join(violation_types[:5])
-                    if len(violation_types) > 5:
-                        violation_text += f" 等{len(violation_types)}种"
+                    # 使用 data 中的 violation_types
+                    violation_types_list = list(data['violation_types'])
+                    violation_text = "、".join(violation_types_list[:5])
+                    if len(violation_types_list) > 5:
+                        violation_text += f" 等{len(violation_types_list)}种"
                     st.write(f"**违规内容:** {violation_text}")
-                
+
                 with col3:
-                    st.write(f"**违规期数:** {total_periods}")
-                    st.write(f"**违规次数:** {total_violations}")
+                    # 使用 data 中的 periods 和 violation_count
+                    st.write(f"**违规期数:** {len(data['periods'])}")
+                    st.write(f"**违规次数:** {data['violation_count']}")
                 
                 # 按彩种和违规类型分组显示，避免重复
                 displayed_violations = set()
