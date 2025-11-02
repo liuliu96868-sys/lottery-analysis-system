@@ -215,7 +215,7 @@ class DataProcessor:
                 null_count = df[col].isnull().sum()
                 if null_count > 0:
                     issues.append(f"列 '{col}' 有 {null_count} 个空值")
-
+        
         # 特别检查会员账号的完整性
         if '会员账号' in df.columns:
             # 检查是否有被截断的账号
@@ -267,7 +267,7 @@ class DataProcessor:
             start_row, start_col = self.find_data_start(df_temp)
             st.info(f"数据起始位置: 第{start_row+1}行, 第{start_col+1}列")
             
-            # 重新读取数据
+            # 重新读取数据 - 添加参数避免自动截断
             df_clean = pd.read_excel(
                 uploaded_file, 
                 header=start_row,
@@ -339,7 +339,7 @@ class DataProcessor:
                 with st.expander("🔍 会员账号样本（前10个）", expanded=False):
                     for i, account in enumerate(sample_accounts, 1):
                         st.write(f"{i}. '{account}' (长度: {len(str(account))})")
-
+            
             # 显示包含特殊字符的账号
             if '会员账号' in df_clean.columns and st.session_state.get('debug_mode', False):
                 special_accounts = df_clean[df_clean['会员账号'].str.contains('_', na=False)]['会员账号'].unique()
@@ -350,6 +350,18 @@ class DataProcessor:
                             st.write(f"- '{account}'")
             
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
+            
+            # 彩种分布显示
+            lottery_dist = df_clean['彩种'].value_counts()
+            with st.expander("🎯 彩种分布", expanded=False):
+                st.dataframe(lottery_dist.reset_index().rename(columns={'index': '彩种', '彩种': '数量'}))
+            
+            return df_clean
+            
+        except Exception as e:
+            st.error(f"❌ 数据清洗失败: {str(e)}")
+            logger.error(f"数据清洗失败: {str(e)}")
+            return None
 
     def debug_account_issues(self, df):
         """调试会员账号问题"""
@@ -407,18 +419,6 @@ class DataProcessor:
             special_accounts = df[df['会员账号'].str.contains(char, na=False, regex=False)]['会员账号'].unique()
             if len(special_accounts) > 0:
                 st.write(f"包含 '{char}' 的账号 ({len(special_accounts)}个): {list(special_accounts[:10])}{'...' if len(special_accounts) > 10 else ''}")
-            
-            # 彩种分布显示
-            lottery_dist = df_clean['彩种'].value_counts()
-            with st.expander("🎯 彩种分布", expanded=False):
-                st.dataframe(lottery_dist.reset_index().rename(columns={'index': '彩种', '彩种': '数量'}))
-            
-            return df_clean
-            
-        except Exception as e:
-            st.error(f"❌ 数据清洗失败: {str(e)}")
-            logger.error(f"数据清洗失败: {str(e)}")
-            return None
 
 # ==================== 内容解析器 ====================
 class ContentParser:
