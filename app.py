@@ -1547,8 +1547,8 @@ class AnalysisEngine:
             return 'SSC'
         elif any(word in lottery_lower for word in ['三色', '三色彩', '三色球']):
             return 'THREE_COLOR'
-        # 添加3D系列识别
-        elif any(word in lottery_lower for word in ['排列三', '排列3', '福彩3d', '3d', '极速3d']):
+        # 增强3D系列识别
+        elif any(word in lottery_lower for word in ['排列三', '排列3', '福彩3d', '3d', '极速3d', '排列', 'p3', 'p三']):
             return '3D'
         
         return None
@@ -2960,7 +2960,7 @@ class AnalysisEngine:
         return results
     
     def _analyze_3d_two_sides(self, account, lottery, period, group, results):
-        """分析3D两面玩法矛盾"""
+        """分析3D两面玩法矛盾 - 增强版"""
         two_sides_group = group[group['玩法分类'] == '两面']
         
         if two_sides_group.empty:
@@ -2977,17 +2977,35 @@ class AnalysisEngine:
             bets = ['大', '小', '单', '双', '质', '合', '和大', '和小', '和单', '和双', 
                    '和尾大', '和尾小', '和尾质', '和尾合']
             
-            # 处理逗号分隔的格式
+            # 处理多种格式：
+            # 1. 逗号分隔格式："百位-大,百位-小,十位-单"
+            # 2. 独立格式："百位-大"
+            # 3. 综合格式："百位-大,小,单"
+            
+            # 按逗号分割
             parts = [part.strip() for part in content.split(',')]
             
+            current_position = None
+            
             for part in parts:
+                # 检查是否包含位置信息
+                position_found = False
                 for position in positions:
                     if position in part:
-                        # 提取该位置的投注选项
-                        for bet in bets:
-                            if bet in part:
-                                position_bets[position].add(bet)
+                        current_position = position
+                        position_found = True
                         break
+                
+                if position_found:
+                    # 提取该位置的所有投注选项
+                    for bet in bets:
+                        if bet in part:
+                            position_bets[current_position].add(bet)
+                elif current_position:
+                    # 如果没有位置信息但有当前上下文位置，检查投注选项
+                    for bet in bets:
+                        if bet in part:
+                            position_bets[current_position].add(bet)
         
         # 检查每个位置的矛盾
         for position, bet_options in position_bets.items():
@@ -4027,6 +4045,10 @@ class Exporter:
             '色波全包': ('投注波色数', '投注内容'),
             '色波红绿投注': ('投注波色数', '投注内容'),
 
+             # 3D系列相关
+            '两面矛盾': (None, '投注内容'),
+            '定位胆多码': ('号码数量', '投注内容'),
+
              # 时时彩相关
             '斗牛多码': ('号码数量', '投注内容'),
             '定位胆多码': ('号码数量', '投注内容'),
@@ -4054,7 +4076,7 @@ class Exporter:
             if content_field and record.get(content_field):
                 export_record[content_field] = str(record[content_field])
             
-            # 添加位置信息（PK10和时时彩专用）
+            # 添加位置信息（3D系列专用）
             if record.get('位置'):
                 export_record['位置'] = record['位置']
     
@@ -4214,8 +4236,8 @@ def main():
                     status_text = st.empty()
                     
                     all_results = {}
-                    # 明确定义 lottery_types 变量
-                    lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩']
+                    # 明确定义 lottery_types 变量 - 添加3D系列
+                    lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
                     
                     for i, lottery_type in enumerate(lottery_types):
                         status_text.text(f"正在分析 {lottery_type}...")
@@ -4230,6 +4252,9 @@ def main():
                             all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
                         elif lottery_type == '三色彩':
                             all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
+                        # 添加3D系列分析调用
+                        elif lottery_type == '3D系列':
+                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
                         
                         progress_bar.progress((i + 1) / len(lottery_types))
                     
@@ -4332,6 +4357,11 @@ def main():
         - 分分快三、三分快3、五分快3、澳洲快三、宾果快三
         - 1分快三、3分快三、5分快三、10分快三、加州快三
         - 幸运快三、大发快三、快三、快3、k3、k三
+
+        **3D系列**
+        - 排列三、排列3、幸运排列3、一分排列3、二分排列3、三分排列3
+        - 五分排列3、十分排列3、大发排列3、好运排列3、福彩3D、极速3D
+        - 极速排列3、幸运3D、一分3D、二分3D、三分3D、五分3D、十分3D、大发3D、好运3D
         
         **三色彩系列**
         - 一分三色彩、30秒三色彩、五分三色彩、三分三色彩、三色、三色彩、三色球
