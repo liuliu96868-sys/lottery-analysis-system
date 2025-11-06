@@ -424,6 +424,101 @@ class DataProcessor:
 # ==================== 内容解析器 ====================
 class ContentParser:
     """统一的投注内容解析器"""
+
+    @staticmethod
+    def parse_pk10_vertical_format(content):
+        """
+        解析PK10竖线分隔的定位胆格式
+        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
+        或者：_|05|_|_|_ 表示只有第二个位置有投注
+        """
+        content_str = str(content).strip()
+        bets_by_position = defaultdict(list)
+        
+        if not content_str:
+            return bets_by_position
+        
+        # 定义位置映射
+        positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
+                    '第六名', '第七名', '第八名', '第九名', '第十名']
+        
+        # 按竖线分割
+        parts = content_str.split('|')
+        
+        for i, part in enumerate(parts):
+            if i < len(positions):
+                position = positions[i]
+                part_clean = part.strip()
+                
+                # 跳过空位或下划线
+                if not part_clean or part_clean == '_' or part_clean == '':
+                    continue
+                
+                # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                numbers = []
+                if ',' in part_clean:
+                    # 逗号分隔的多个数字
+                    number_strs = part_clean.split(',')
+                    for num_str in number_strs:
+                        num_clean = num_str.strip()
+                        if num_clean.isdigit():
+                            numbers.append(int(num_clean))
+                else:
+                    # 单个数字
+                    if part_clean.isdigit():
+                        numbers.append(int(part_clean))
+                
+                # 添加到对应位置
+                bets_by_position[position].extend(numbers)
+        
+        return bets_by_position
+
+    @staticmethod
+    def parse_ssc_vertical_format(content):
+        """
+        解析时时彩竖线分隔的定位胆格式
+        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
+        或者：_|05|_|_|_ 表示只有第二个位置有投注
+        """
+        content_str = str(content).strip()
+        bets_by_position = defaultdict(list)
+        
+        if not content_str:
+            return bets_by_position
+        
+        # 定义位置映射
+        positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
+        
+        # 按竖线分割
+        parts = content_str.split('|')
+        
+        for i, part in enumerate(parts):
+            if i < len(positions):
+                position = positions[i]
+                part_clean = part.strip()
+                
+                # 跳过空位或下划线
+                if not part_clean or part_clean == '_' or part_clean == '':
+                    continue
+                
+                # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                numbers = []
+                if ',' in part_clean:
+                    # 逗号分隔的多个数字
+                    number_strs = part_clean.split(',')
+                    for num_str in number_strs:
+                        num_clean = num_str.strip()
+                        if num_clean.isdigit():
+                            numbers.append(int(num_clean))
+                else:
+                    # 单个数字
+                    if part_clean.isdigit():
+                        numbers.append(int(part_clean))
+                
+                # 添加到对应位置
+                bets_by_position[position].extend(numbers)
+        
+        return bets_by_position
     
     @staticmethod
     def parse_positional_bets(content, position_keywords=None):
@@ -472,7 +567,7 @@ class ContentParser:
     
     @staticmethod
     def parse_pk10_content(content):
-        """解析PK10投注内容 - 增强版"""
+        """解析PK10投注内容 - 增强版，支持竖线格式"""
         pk10_positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
                          '第六名', '第七名', '第八名', '第九名', '第十名',
                          '第1名', '第2名', '第3名', '第4名', '第5名',
@@ -481,16 +576,20 @@ class ContentParser:
         
         content_str = str(content).strip()
         
+        # 首先检查是否是竖线分隔格式
+        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
+            vertical_result = ContentParser.parse_pk10_vertical_format(content_str)
+            if any(vertical_result.values()):  # 如果有解析结果
+                return vertical_result
+        
         # 特殊处理"位置:号码"格式
         if ':' in content_str and re.search(r'\d{2}', content_str):
-            # 处理"第九名:01,02,05,06,07,08,09,03"这种格式
             match = re.match(r'^(.+?):([\d,]+)$', content_str)
             if match:
                 position = match.group(1).strip()
                 numbers_str = match.group(2)
                 bets_by_position = defaultdict(list)
                 
-                # 标准化位置名称
                 normalized_position = position
                 if '九' in position or '9' in position:
                     normalized_position = '第九名'
@@ -512,9 +611,19 @@ class ContentParser:
     
     @staticmethod
     def parse_ssc_content(content):
-        """解析时时彩投注内容"""
+        """解析时时彩投注内容 - 增强竖线格式支持"""
         ssc_positions = ['第1球', '第2球', '第3球', '第4球', '第5球',
                         '万位', '千位', '百位', '十位', '个位']
+        
+        content_str = str(content).strip()
+        
+        # 首先检查是否是竖线分隔格式
+        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
+            vertical_result = ContentParser.parse_ssc_vertical_format(content_str)
+            if any(vertical_result.values()):  # 如果有解析结果
+                return vertical_result
+        
+        # 原有的解析逻辑
         return ContentParser.parse_positional_bets(content, ssc_positions)
 
     @staticmethod
@@ -793,9 +902,15 @@ class DataAnalyzer:
         return result
     
     def parse_pk10_number_content(self, content):
-        """解析PK10号码类玩法内容"""
+        """解析PK10号码类玩法内容 - 增强竖线格式支持"""
         content_str = str(content)
         numbers_by_position = defaultdict(list)
+        
+        # 首先尝试竖线分隔格式
+        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
+            vertical_result = ContentParser.parse_pk10_vertical_format(content_str)
+            if any(vertical_result.values()):
+                return vertical_result
         
         # 处理竖线分隔的格式：01,02,03,04,05|07,08,06,09,10|...
         if '|' in content_str and re.search(r'\d{2}', content_str):
@@ -810,7 +925,6 @@ class DataAnalyzer:
         
         # 处理"第九名:01,02,05,06,07,08,09,03"这种格式
         elif ':' in content_str and re.search(r'\d{2}', content_str):
-            # 直接匹配"位置:号码"格式
             match = re.match(r'^(.+?):([\d,]+)$', content_str)
             if match:
                 position = match.group(1).strip()
@@ -820,7 +934,6 @@ class DataAnalyzer:
                     numbers = re.findall(r'\d{2}', numbers_str)
                     numbers_by_position[position].extend([int(num) for num in numbers])
             else:
-                # 处理多个位置的情况
                 parts = content_str.split(',')
                 for part in parts:
                     if ':' in part:
