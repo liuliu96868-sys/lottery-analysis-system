@@ -56,6 +56,17 @@ LOTTERY_CONFIGS = {
         'min_number': 1,
         'max_number': 49
     },
+    '3D': {
+        'lotteries': [
+            '排列三', '排列3', '幸运排列3', '一分排列3', '二分排列3', '三分排列3', 
+            '五分排列3', '十分排列3', '大发排列3', '好运排列3', '福彩3D', '极速3D',
+            '极速排列3', '幸运3D', '一分3D', '二分3D', '三分3D', '五分3D', 
+            '十分3D', '大发3D', '好运3D'
+        ],
+        'min_number': 0,
+        'max_number': 9,
+        'dingwei_threshold': 7  # 定位胆多码阈值
+    },
     'SSC': {
         'lotteries': [
             '分分时时彩', '三分时时彩', '五分时时彩', '宾果时时彩',
@@ -97,6 +108,10 @@ THRESHOLD_CONFIG = {
         'lianwei_threshold': 7,
         'wave_bet': 3,
         'five_elements': 4
+    },
+    '3D': {
+        'dingwei_multi': 7,  # 定位胆多码阈值
+        'two_sides_conflict': 2  # 两面矛盾检测
     },
     'SSC': {
         'dingwei_multi': 8,
@@ -1227,6 +1242,24 @@ class PlayCategoryNormalizer:
             '正码1~6': '正码1-6',
             '正码1-6特': '正码1-6',
             '正码1~6特': '正码1-6',
+
+            # 3D系列玩法映射
+            '两面': '两面',
+            '大小单双': '两面',
+            '百位': '百位',
+            '十位': '十位', 
+            '个位': '个位',
+            '百十': '百十',
+            '百个': '百个',
+            '十个': '十个',
+            '百十个': '百十个',
+            '定位胆': '定位胆',
+            '定位胆_百位': '定位胆_百位',
+            '定位胆_十位': '定位胆_十位',
+            '定位胆_个位': '定位胆_个位',
+            '百位(定位)': '定位胆_百位',
+            '十位(定位)': '定位胆_十位',
+            '个位(定位)': '定位胆_个位',
             
             # 时时彩玩法
             '斗牛': '斗牛',
@@ -1514,6 +1547,9 @@ class AnalysisEngine:
             return 'SSC'
         elif any(word in lottery_lower for word in ['三色', '三色彩', '三色球']):
             return 'THREE_COLOR'
+        # 添加3D系列识别
+        elif any(word in lottery_lower for word in ['排列三', '排列3', '福彩3d', '3d', '极速3d']):
+            return '3D'
         
         return None
 
@@ -2905,6 +2941,138 @@ class AnalysisEngine:
             if st.session_state.get('debug_mode', False):
                 st.write(f"✅ 检测到半波单双全包: {account}, {period}")
 
+    # =============== 3D系列分析方法 ===============
+    def analyze_3d_patterns(self, df):
+        """分析3D系列投注模式"""
+        results = defaultdict(list)
+        
+        df_target = df[df['彩种'].apply(self.identify_lottery_type) == '3D']
+        
+        if len(df_target) == 0:
+            return results
+        
+        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
+        
+        for (account, lottery, period), group in grouped:
+            self._analyze_3d_two_sides(account, lottery, period, group, results)
+            self._analyze_3d_dingwei(account, lottery, period, group, results)
+        
+        return results
+    
+    def _analyze_3d_two_sides(self, account, lottery, period, group, results):
+        """分析3D两面玩法矛盾"""
+        two_sides_group = group[group['玩法分类'] == '两面']
+        
+        if two_sides_group.empty:
+            return
+        
+        # 按位置分类收集投注
+        position_bets = defaultdict(set)
+        
+        for _, row in two_sides_group.iterrows():
+            content = str(row['内容'])
+            
+            # 解析位置和投注选项
+            positions = ['百位', '十位', '个位', '百十', '百个', '十个', '百十个']
+            bets = ['大', '小', '单', '双', '质', '合', '和大', '和小', '和单', '和双', 
+                   '和尾大', '和尾小', '和尾质', '和尾合']
+            
+            # 处理逗号分隔的格式
+            parts = [part.strip() for part in content.split(',')]
+            
+            for part in parts:
+                for position in positions:
+                    if position in part:
+                        # 提取该位置的投注选项
+                        for bet in bets:
+                            if bet in part:
+                                position_bets[position].add(bet)
+                        break
+        
+        # 检查每个位置的矛盾
+        for position, bet_options in position_bets.items():
+            conflicts = []
+            
+            # 基本大小单双质合矛盾
+            if '大' in bet_options and '小' in bet_options:
+                conflicts.append('大小矛盾')
+            if '单' in bet_options and '双' in bet_options:
+                conflicts.append('单双矛盾')
+            if '质' in bet_options and '合' in bet_options:
+                conflicts.append('质合矛盾')
+            
+            # 和数属性矛盾
+            if '和大' in bet_options and '和小' in bet_options:
+                conflicts.append('和大小矛盾')
+            if '和单' in bet_options and '和双' in bet_options:
+                conflicts.append('和单双矛盾')
+            if '和尾大' in bet_options and '和尾小' in bet_options:
+                conflicts.append('和尾大小矛盾')
+            if '和尾质' in bet_options and '和尾合' in bet_options:
+                conflicts.append('和尾质合矛盾')
+            
+            if conflicts:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '两面',
+                    '位置': position,
+                    '矛盾类型': '、'.join(conflicts),
+                    '投注内容': f"{position}:{','.join(sorted(bet_options))}",
+                    '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
+                }
+                self._add_unique_result(results, '两面矛盾', record)
+    
+    def _analyze_3d_dingwei(self, account, lottery, period, group, results):
+        """分析3D定位胆多码"""
+        dingwei_categories = ['定位胆', '定位胆_百位', '定位胆_十位', '定位胆_个位']
+        
+        dingwei_group = group[group['玩法分类'].isin(dingwei_categories)]
+        
+        position_numbers = defaultdict(set)
+        
+        for _, row in dingwei_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 确定位置
+            if '百位' in category:
+                position = '百位'
+            elif '十位' in category:
+                position = '十位'
+            elif '个位' in category:
+                position = '个位'
+            else:
+                # 从内容推断位置
+                if '百位' in content:
+                    position = '百位'
+                elif '十位' in content:
+                    position = '十位'
+                elif '个位' in content:
+                    position = '个位'
+                else:
+                    position = '未知位置'
+            
+            # 提取号码
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
+            position_numbers[position].update(numbers)
+        
+        # 检查每个位置的超码
+        for position, numbers in position_numbers.items():
+            if len(numbers) >= THRESHOLD_CONFIG['3D']['dingwei_multi']:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '定位胆',
+                    '位置': position,
+                    '号码数量': len(numbers),
+                    '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
+                }
+                self._add_unique_result(results, '定位胆多码', record)
+
     # =============== 快三分析方法 ===============
     def analyze_k3_patterns(self, df):
         """分析快三投注模式"""
@@ -3354,7 +3522,8 @@ class AnalysisEngine:
         status_text = st.empty()
         
         all_results = {}
-        lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩']
+        # 修改这里：添加3D系列
+        lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
         
         for i, lottery_type in enumerate(lottery_types):
             status_text.text(f"正在分析 {lottery_type}...")
@@ -3369,6 +3538,9 @@ class AnalysisEngine:
                 all_results[lottery_type] = self.analyze_k3_patterns(df)
             elif lottery_type == '三色彩':
                 all_results[lottery_type] = self.analyze_three_color_patterns(df)
+            # 添加3D系列分析
+            elif lottery_type == '3D系列':
+                all_results[lottery_type] = self.analyze_3d_patterns(df)
             
             progress_bar.progress((i + 1) / len(lottery_types))
         
@@ -3439,6 +3611,10 @@ class ResultProcessor:
                 '五行多组': '五行多组',
                 '连肖多肖': '连肖多肖',
                 '连尾多尾': '连尾多尾'
+            },
+            '3D系列': {
+                '两面矛盾': '两面矛盾',
+                '定位胆多码': '定位胆多码'
             },
             '时时彩': {
                 '两面矛盾': '两面矛盾',
@@ -3999,6 +4175,10 @@ def main():
     with st.sidebar.expander("三色彩系列阈值"):
         three_color_zhengma = st.slider("正码多码阈值", 5, 15, THRESHOLD_CONFIG['THREE_COLOR']['zhengma_multi'])
         THRESHOLD_CONFIG['THREE_COLOR']['zhengma_multi'] = three_color_zhengma
+
+    with st.sidebar.expander("3D系列阈值"):
+        three_d_dingwei = st.slider("3D定位胆多码阈值", 5, 10, THRESHOLD_CONFIG['3D']['dingwei_multi'])
+        THRESHOLD_CONFIG['3D']['dingwei_multi'] = three_d_dingwei
     
     if uploaded_file is not None:
         try:
