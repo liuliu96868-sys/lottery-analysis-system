@@ -1869,7 +1869,7 @@ class AnalysisEngine:
         
         position_bets = defaultdict(set)
         
-        for _, row in independent_group.iterrows():
+        for _, row in independent_group.iterrows():  # 这个for循环需要正确缩进
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
@@ -1894,7 +1894,7 @@ class AnalysisEngine:
             
             position_bets[position].update(bets)
         
-        for position, bets in position_bets.items():
+        for position, bets in position_bets.items():  # 这个for循环也需要正确缩进
             conflicts = []
             
             if '大' in bets and '小' in bets:
