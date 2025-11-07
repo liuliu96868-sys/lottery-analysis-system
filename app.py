@@ -2410,7 +2410,6 @@ class AnalysisEngine:
                         '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正码1-6矛盾')
                     }
                     self._add_unique_result(results, '正码1-6矛盾', record)
-                else:
     
     def _normalize_zhengma_position(self, position):
         """标准化正码位置名称"""
