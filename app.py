@@ -3197,7 +3197,7 @@ class AnalysisEngine:
         return results
     
     def _analyze_k3_hezhi_enhanced(self, account, lottery, period, group, results):
-        """和值分析逻辑"""
+        """分析快三和值玩法 - 优化版，优先展示数量最多的矛盾组合"""
         hezhi_categories = ['和值', '和值_大小单双']
         
         hezhi_group = group[group['玩法分类'].isin(hezhi_categories)]
@@ -3290,35 +3290,50 @@ class AnalysisEngine:
             single_values = [num for num in all_numbers if num % 2 == 1]
             double_values = [num for num in all_numbers if num % 2 == 0]
             
-            contradictions = []
-            contradiction_value = 0
+            # 收集所有可能的矛盾
+            possible_contradictions = []
             
             # 投注小但包含多个大号码（4个或以上）
             if has_small and len(big_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradictions.append(f"投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)")
                 contradiction_value = len(big_values)
+                description = f"投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
+                possible_contradictions.append(('大小矛盾', description, contradiction_value))
+            
             # 投注大但包含多个小号码（4个或以上）
-            elif has_big and len(small_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradictions.append(f"投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)")
+            if has_big and len(small_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
                 contradiction_value = len(small_values)
+                description = f"投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
+                possible_contradictions.append(('大小矛盾', description, contradiction_value))
             
-            # 新增：单双矛盾检测
+            # 投注单但包含多个双号码（4个或以上）
             if has_single and len(double_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradictions.append(f"投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)")
-                contradiction_value = max(contradiction_value, len(double_values))
-            elif has_double and len(single_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradictions.append(f"投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)")
-                contradiction_value = max(contradiction_value, len(single_values))
+                contradiction_value = len(double_values)
+                description = f"投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
+                possible_contradictions.append(('单双矛盾', description, contradiction_value))
             
-            if contradictions:
+            # 投注双但包含多个单号码（4个或以上）
+            if has_double and len(single_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
+                contradiction_value = len(single_values)
+                description = f"投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
+                possible_contradictions.append(('单双矛盾', description, contradiction_value))
+            
+            # 优先展示数量最多的矛盾组合
+            if possible_contradictions:
+                # 按矛盾值降序排序
+                possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+                
+                # 选择矛盾值最大的那个
+                best_contradiction = possible_contradictions[0]
+                contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+                
                 # 这是和值大小矛盾，与和值矛盾不同
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
                     '玩法分类': '和值',
-                    '矛盾类型': contradictions[0],
-                    '矛盾值': contradiction_value,  # 使用相反方向的数量
+                    '矛盾类型': contradiction_desc,
+                    '矛盾值': contradiction_value,
                     '大号码数量': len(big_values),
                     '小号码数量': len(small_values),
                     '单号码数量': len(single_values),
