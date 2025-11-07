@@ -1514,6 +1514,25 @@ class AnalysisEngine:
         
         return None
 
+    def normalize_tail_play_category(self, content, current_category):
+        """统一标准化尾数玩法分类"""
+        content_str = str(content)
+        
+        # 玩法关键字优先级（从具体到一般）
+        play_keywords = [
+            ('特尾', '特尾'),
+            ('全尾', '全尾'),
+            ('头尾数', '尾数_头尾数'),
+            ('尾数', '尾数')
+        ]
+        
+        for keyword, normalized_category in play_keywords:
+            if keyword in content_str:
+                return normalized_category
+        
+        # 如果没有匹配关键字，返回原始分类
+        return current_category
+
     # =============== PK10分析方法 ===============
     def analyze_pk10_patterns(self, df):
         """分析PK拾/赛车系列投注模式"""
@@ -2186,46 +2205,51 @@ class AnalysisEngine:
             )
             
             for (account, lottery, period), group in grouped:
-                all_tails = set()
-                all_contents = []
+                # 使用字典按调整后的分类聚合尾数
+                category_tails = defaultdict(set)
+                category_contents = defaultdict(list)
                 
                 for _, row in group.iterrows():
                     content = str(row['内容'])
                     category = str(row['玩法分类'])
                     
+                    # 统一标准化尾数玩法分类
+                    actual_category = self.normalize_tail_play_category(content, category)
+                    
                     clean_content = self.data_analyzer.parse_lhc_special_content(content)
                     tails = self.data_analyzer.extract_tails_from_content(clean_content)
-                    all_tails.update(tails)
-                    all_contents.append(clean_content)
+                    category_tails[actual_category].update(tails)
+                    category_contents[actual_category].append(clean_content)
                 
-                # 检查是否达到阈值（7尾或以上）
-                if len(all_tails) >= THRESHOLD_CONFIG['LHC']['tail_play']:
-                    # 构建投注内容显示 - 显示具体的尾数列表
-                    bet_content = ', '.join([f"{tail}尾" for tail in sorted(all_tails)])
-                    
-                    # 根据不同的尾数分类，使用不同的结果键名
-                    if tail_category == '尾数':
-                        result_key = '尾数多码'
-                    elif tail_category == '尾数_头尾数':
-                        result_key = '尾数头尾多码'
-                    elif tail_category == '特尾':
-                        result_key = '特尾多尾'
-                    elif tail_category == '全尾':
-                        result_key = '全尾多尾'
-                    else:
-                        result_key = '尾数多码'
-                    
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': f"{tail_category}（{', '.join([str(tail) for tail in sorted(all_tails)])}）",
-                        '尾数数量': len(all_tails),
-                        '号码数量': len(all_tails),  # 兼容字段
-                        '投注内容': bet_content,
-                        '排序权重': self._calculate_sort_weight({'尾数数量': len(all_tails)}, result_key)
-                    }
-                    self._add_unique_result(results, result_key, record)
+                # 对每个调整后的分类分别检查阈值
+                for actual_category, tails_set in category_tails.items():
+                    if len(tails_set) >= THRESHOLD_CONFIG['LHC']['tail_play']:
+                        # 根据不同的尾数分类，使用不同的结果键名
+                        if actual_category == '尾数':
+                            result_key = '尾数多码'
+                        elif actual_category == '尾数_头尾数':
+                            result_key = '尾数头尾多码'
+                        elif actual_category == '特尾':
+                            result_key = '特尾多尾'
+                        elif actual_category == '全尾':
+                            result_key = '全尾多尾'
+                        else:
+                            result_key = '尾数多码'
+                        
+                        # 构建投注内容显示 - 显示具体的尾数列表
+                        bet_content = ', '.join([f"{tail}尾" for tail in sorted(tails_set)])
+                        
+                        record = {
+                            '会员账号': account,
+                            '彩种': lottery,
+                            '期号': period,
+                            '玩法分类': f"{actual_category}（{', '.join([str(tail) for tail in sorted(tails_set)])}）",
+                            '尾数数量': len(tails_set),
+                            '号码数量': len(tails_set),  # 兼容字段
+                            '投注内容': bet_content,
+                            '排序权重': self._calculate_sort_weight({'尾数数量': len(tails_set)}, result_key)
+                        }
+                        self._add_unique_result(results, result_key, record)
     
     def _analyze_lhc_tema(self, account, lottery, period, group, results):
         tema_group = group[group['玩法分类'] == '特码']
