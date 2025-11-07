@@ -642,6 +642,53 @@ class ContentParser:
         return ContentParser.parse_positional_bets(content, ssc_positions)
 
     @staticmethod
+    def parse_3d_vertical_format(content):
+        """
+        解析3D/排列3竖线分隔的定位胆格式
+        格式：号码1,号码2|号码3|号码4,号码5,号码6
+        或者：_|05|_ 表示只有第二个位置有投注
+        """
+        content_str = str(content).strip()
+        bets_by_position = defaultdict(list)
+        
+        if not content_str:
+            return bets_by_position
+        
+        # 定义位置映射 - 3D通常是百位、十位、个位
+        positions = ['百位', '十位', '个位']
+        
+        # 按竖线分割
+        parts = content_str.split('|')
+        
+        for i, part in enumerate(parts):
+            if i < len(positions):
+                position = positions[i]
+                part_clean = part.strip()
+                
+                # 跳过空位或下划线
+                if not part_clean or part_clean == '_' or part_clean == '':
+                    continue
+                
+                # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                numbers = []
+                if ',' in part_clean:
+                    # 逗号分隔的多个数字
+                    number_strs = part_clean.split(',')
+                    for num_str in number_strs:
+                        num_clean = num_str.strip()
+                        if num_clean.isdigit():
+                            numbers.append(int(num_clean))
+                else:
+                    # 单个数字
+                    if part_clean.isdigit():
+                        numbers.append(int(num_clean))
+                
+                # 添加到对应位置
+                bets_by_position[position].extend(numbers)
+        
+        return bets_by_position
+
+    @staticmethod
     def infer_position_from_content(content, lottery_type):
         """从内容和彩种类型推断位置"""
         content_str = str(content)
@@ -702,7 +749,7 @@ class DataAnalyzer:
         self.cache = {}
         self.content_parser = ContentParser()  # 添加统一解析器
     
-    @lru_cache(maxsize=1000)
+    @lru_cache(maxsize=10000)
     def extract_numbers_cached(self, content, min_num, max_num, is_pk10=False):
         """带缓存的号码提取函数"""
         return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
@@ -1047,6 +1094,19 @@ class DataAnalyzer:
             return '第九名'
         
         return position  # 返回原位置而不是未知
+
+    def parse_3d_content(self, content):
+        """解析3D投注内容 - 增强竖线格式支持"""
+        content_str = str(content).strip()
+        
+        # 首先检查是否是竖线分隔格式
+        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
+            vertical_result = ContentParser.parse_3d_vertical_format(content_str)
+            if any(vertical_result.values()):  # 如果有解析结果
+                return vertical_result
+        
+        # 原有的解析逻辑
+        return ContentParser.parse_positional_bets(content, ['百位', '十位', '个位'])
     
     def parse_lhc_special_content(self, content):
         """解析六合彩特殊玩法内容，按照玩法-投注内容格式解析"""
@@ -2960,7 +3020,7 @@ class AnalysisEngine:
         return results
     
     def _analyze_3d_two_sides(self, account, lottery, period, group, results):
-        """分析3D两面玩法矛盾 - 增强版"""
+        """分析3D两面玩法矛盾 - 增强竖线格式支持"""
         two_sides_group = group[group['玩法分类'] == '两面']
         
         if two_sides_group.empty:
@@ -2972,42 +3032,54 @@ class AnalysisEngine:
         for _, row in two_sides_group.iterrows():
             content = str(row['内容'])
             
-            # 解析位置和投注选项
-            positions = ['百位', '十位', '个位', '百十', '百个', '十个', '百十个']
-            bets = ['大', '小', '单', '双', '质', '合', '和大', '和小', '和单', '和双', 
-                   '和尾大', '和尾小', '和尾质', '和尾合']
-            
-            # 处理多种格式：
-            # 1. 逗号分隔格式："百位-大,百位-小,十位-单"
-            # 2. 独立格式："百位-大"
-            # 3. 综合格式："百位-大,小,单"
-            
-            # 按逗号分割
-            parts = [part.strip() for part in content.split(',')]
-            
-            current_position = None
-            
-            for part in parts:
-                # 检查是否包含位置信息
-                position_found = False
-                for position in positions:
-                    if position in part:
-                        current_position = position
-                        position_found = True
-                        break
+            # 首先尝试解析竖线格式
+            bets_by_position = self.data_analyzer.parse_3d_content(content)
+            if bets_by_position:
+                # 竖线格式解析成功
+                for position, bets in bets_by_position.items():
+                    for bet in bets:
+                        # 提取大小单双信息
+                        if isinstance(bet, str):
+                            if '大' in bet:
+                                position_bets[position].add('大')
+                            if '小' in bet:
+                                position_bets[position].add('小')
+                            if '单' in bet:
+                                position_bets[position].add('单')
+                            if '双' in bet:
+                                position_bets[position].add('双')
+            else:
+                # 原有的解析逻辑
+                positions = ['百位', '十位', '个位', '百十', '百个', '十个', '百十个']
+                bets = ['大', '小', '单', '双', '质', '合', '和大', '和小', '和单', '和双', 
+                       '和尾大', '和尾小', '和尾质', '和尾合']
                 
-                if position_found:
-                    # 提取该位置的所有投注选项
-                    for bet in bets:
-                        if bet in part:
-                            position_bets[current_position].add(bet)
-                elif current_position:
-                    # 如果没有位置信息但有当前上下文位置，检查投注选项
-                    for bet in bets:
-                        if bet in part:
-                            position_bets[current_position].add(bet)
+                # 处理多种格式
+                parts = [part.strip() for part in content.split(',')]
+                
+                current_position = None
+                
+                for part in parts:
+                    # 检查是否包含位置信息
+                    position_found = False
+                    for position in positions:
+                        if position in part:
+                            current_position = position
+                            position_found = True
+                            break
+                    
+                    if position_found:
+                        # 提取该位置的所有投注选项
+                        for bet in bets:
+                            if bet in part:
+                                position_bets[current_position].add(bet)
+                    elif current_position:
+                        # 如果没有位置信息但有当前上下文位置，检查投注选项
+                        for bet in bets:
+                            if bet in part:
+                                position_bets[current_position].add(bet)
         
-        # 检查每个位置的矛盾
+        # 检查每个位置的矛盾（保持原有逻辑不变）
         for position, bet_options in position_bets.items():
             conflicts = []
             
@@ -3043,7 +3115,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '两面矛盾', record)
     
     def _analyze_3d_dingwei(self, account, lottery, period, group, results):
-        """分析3D定位胆多码"""
+        """分析3D定位胆多码 - 增强竖线格式支持"""
         dingwei_categories = ['定位胆', '定位胆_百位', '定位胆_十位', '定位胆_个位']
         
         dingwei_group = group[group['玩法分类'].isin(dingwei_categories)]
@@ -3054,6 +3126,15 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
+            # 首先使用统一解析器解析竖线格式
+            bets_by_position = self.data_analyzer.parse_3d_content(content)
+            if bets_by_position:
+                # 如果有解析结果，使用解析出的位置和号码
+                for position, numbers in bets_by_position.items():
+                    position_numbers[position].update(numbers)
+                continue
+            
+            # 如果没有竖线格式，使用原有逻辑
             # 确定位置
             if '百位' in category:
                 position = '百位'
