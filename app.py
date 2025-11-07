@@ -771,8 +771,6 @@ class DataAnalyzer:
         content_str = str(content)
         found_waves = []
         
-        # 调试信息 - 显示开始提取
-        
         # 波色映射（包括七色波的所有颜色）
         wave_mappings = {
             '红波': ['红波', '紅色波', '红'],
@@ -790,6 +788,7 @@ class DataAnalyzer:
                     # 检查是否是复合投注，如"红波-红双"
                     if '-' in content_str and f"{keyword}-" in content_str:
                         # 这种情况"红波"是玩法部分，不是实际投注内容
+                        pass  # 添加pass语句，避免空的if分支
                     else:
                         # 检查是否被半波项包含（如"红大"包含"红"，但不是我们要的波色）
                         is_banbo_item = False
@@ -801,10 +800,7 @@ class DataAnalyzer:
                         
                         if not is_banbo_item:
                             found_waves.append(wave_name)
-                        else:
                     break  # 找到一个关键词就跳出内层循环
-        
-        # 调试信息 - 显示提取结果
         
         return list(set(found_waves))
 
