@@ -772,8 +772,6 @@ class DataAnalyzer:
         found_waves = []
         
         # 调试信息 - 显示开始提取
-        if st.session_state.get('debug_mode', False):
-            st.write(f"🔍 波色提取开始: 内容='{content_str}'")
         
         # 波色映射（包括七色波的所有颜色）
         wave_mappings = {
@@ -792,8 +790,6 @@ class DataAnalyzer:
                     # 检查是否是复合投注，如"红波-红双"
                     if '-' in content_str and f"{keyword}-" in content_str:
                         # 这种情况"红波"是玩法部分，不是实际投注内容
-                        if st.session_state.get('debug_mode', False):
-                            st.write(f"🔍 波色调试: 忽略玩法部分 '{keyword}'，完整内容: '{content_str}'")
                     else:
                         # 检查是否被半波项包含（如"红大"包含"红"，但不是我们要的波色）
                         is_banbo_item = False
@@ -805,16 +801,10 @@ class DataAnalyzer:
                         
                         if not is_banbo_item:
                             found_waves.append(wave_name)
-                            if st.session_state.get('debug_mode', False):
-                                st.write(f"🔍 波色调试: 检测到 '{wave_name}'，完整内容: '{content_str}'")
                         else:
-                            if st.session_state.get('debug_mode', False):
-                                st.write(f"🔍 波色调试: 忽略半波项中的 '{keyword}'，完整内容: '{content_str}'")
                     break  # 找到一个关键词就跳出内层循环
         
         # 调试信息 - 显示提取结果
-        if st.session_state.get('debug_mode', False):
-            st.write(f"🔍 波色提取结果: {found_waves}")
         
         return list(set(found_waves))
 
@@ -1044,15 +1034,11 @@ class DataAnalyzer:
             bet_content = parts[1].strip()      # 投注内容部分
             
             # 调试信息 - 显示解析过程
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 解析调试: '{content_str}' -> 玩法: '{play_method}', 投注: '{bet_content}'")
             
             # 返回投注内容部分，这才是实际的下注内容
             return bet_content
         else:
             # 如果没有"-"，整个内容作为投注内容
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 解析调试: '{content_str}' -> 无分隔符，直接返回")
             return content_str.strip()
     
     def extract_lhc_two_sides_content(self, content):
@@ -2197,12 +2183,6 @@ class AnalysisEngine:
         """分析六合彩尾数玩法的完整逻辑 - 从Colab版本移植"""
         tail_categories = ['尾数', '尾数_头尾数', '特尾', '全尾']
         
-        # 添加调试：查看实际被分析的分类
-        actual_categories = df_target['玩法分类'].unique()
-        tail_related_categories = [cat for cat in actual_categories if '尾' in str(cat)]
-        if tail_related_categories and st.session_state.get('debug_mode', False):
-            st.info(f"检测到尾数相关玩法分类: {tail_related_categories}")
-        
         # 按不同尾数分类分别分析
         for tail_category in tail_categories:
             grouped = df_target[df_target['玩法分类'] == tail_category].groupby(
@@ -2250,10 +2230,6 @@ class AnalysisEngine:
                         '排序权重': self._calculate_sort_weight({'尾数数量': len(all_tails)}, result_key)
                     }
                     self._add_unique_result(results, result_key, record)
-                    
-                    # 添加调试信息
-                    if st.session_state.get('debug_mode', False):
-                        st.write(f"发现{tail_category}多号码: 账号={account}, 期号={period}, 尾数数量={len(all_tails)}")
     
     def _analyze_lhc_tema(self, account, lottery, period, group, results):
         tema_group = group[group['玩法分类'] == '特码']
@@ -2392,9 +2368,6 @@ class AnalysisEngine:
         zhengma_1_6_group = group[group['玩法分类'] == '正码1-6']
         
         if zhengma_1_6_group.empty:
-            # 调试信息
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 正码1-6检测: 账号={account}, 期号={period}, 没有找到正码1-6的记录")
             return
         
         position_bets = defaultdict(lambda: defaultdict(set))
@@ -2437,11 +2410,7 @@ class AnalysisEngine:
                         '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正码1-6矛盾')
                     }
                     self._add_unique_result(results, '正码1-6矛盾', record)
-                    if st.session_state.get('debug_mode', False):
-                        st.write(f"✅ 检测到正码1-6矛盾: {account}, {period}, {position}, {conflicts}")
                 else:
-                    if st.session_state.get('debug_mode', False):
-                        st.write(f"🔍 正码1-6检测: 位置={position}, 投注={bets_by_type}, 未发现矛盾")
     
     def _normalize_zhengma_position(self, position):
         """标准化正码位置名称"""
@@ -2612,10 +2581,6 @@ class AnalysisEngine:
             for item in banbo_items:
                 if item in clean_content:
                     all_banbo_bets.add(item)
-            
-            # 调试信息
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 色波检测调试: 内容='{clean_content}', 波色={waves}, 半波项={[item for item in banbo_items if item in clean_content]}")
         
         # 检测1: 传统色波全包（红波、蓝波、绿波）- 七色波就是色波
         traditional_waves = {'红波', '蓝波', '绿波'}
@@ -2631,8 +2596,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '色波全包')
             }
             self._add_unique_result(results, '色波全包', record)
-            if st.session_state.get('debug_mode', False):
-                st.write(f"✅ 检测到色波全包: {account}, {period}")
         
         # 检测2: 色波玩法中的半波全包检测
         # 大小全包检测
@@ -2650,8 +2613,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '色波中半波大小全包')
             }
             self._add_unique_result(results, '色波中半波全包', record)
-            if st.session_state.get('debug_mode', False):
-                st.write(f"✅ 检测到色波中半波大小全包: {account}, {period}")
         
         # 单双全包检测
         parity_full_set = {'红单', '红双', '蓝单', '蓝双', '绿单', '绿双'}
@@ -2668,8 +2629,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '色波中半波单双全包')
             }
             self._add_unique_result(results, '色波中半波全包', record)
-            if st.session_state.get('debug_mode', False):
-                st.write(f"✅ 检测到色波中半波单双全包: {account}, {period}")
     
     def _analyze_lhc_five_elements(self, account, lottery, period, group, results):
         five_elements_group = group[group['玩法分类'] == '五行']
@@ -2884,10 +2843,6 @@ class AnalysisEngine:
                 if bet in bet_content:
                     all_banbo_bets.add(bet)
         
-        # 调试信息
-        if st.session_state.get('debug_mode', False):
-            st.write(f"🔍 半波检测调试: 账号={account}, 期号={period}, 投注项={all_banbo_bets}")
-        
         # 检测大小全包
         if size_full_set.issubset(all_banbo_bets):
             record = {
@@ -2901,8 +2856,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '半波大小全包')
             }
             self._add_unique_result(results, '半波大小全包', record)
-            if st.session_state.get('debug_mode', False):
-                st.write(f"✅ 检测到半波大小全包: {account}, {period}")
         
         # 检测单双全包
         if parity_full_set.issubset(all_banbo_bets):
@@ -2917,8 +2870,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '半波单双全包')
             }
             self._add_unique_result(results, '半波单双全包', record)
-            if st.session_state.get('debug_mode', False):
-                st.write(f"✅ 检测到半波单双全包: {account}, {period}")
 
     # =============== 3D系列分析方法 ===============
     def analyze_3d_patterns(self, df):
@@ -3269,15 +3220,7 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 调试信息
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 独胆/三军检测: 账号={account}, 期号={period}, 玩法={category}, 内容={content}")
-            
             numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
-            
-            # 调试信息
-            if st.session_state.get('debug_mode', False):
-                st.write(f"🔍 号码提取结果: {numbers}, 数量={len(numbers)}")
             
             # 检测单个记录的多号码（通常不会触发，因为三军是分开投注的）
             if len(numbers) >= 5:
@@ -3291,10 +3234,6 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '独胆多码')
                 }
                 self._add_unique_result(results, '独胆多码', record)
-                
-                # 调试信息
-                if st.session_state.get('debug_mode', False):
-                    st.success(f"✅ 检测到独胆多码: {account}, {period}, 号码数量={len(numbers)}")
     
     def _analyze_k3_dudan_aggregated(self, account, lottery, period, group, results):
         """分析快三独胆玩法 - 按账户期号聚合检测"""
@@ -3324,9 +3263,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '独胆多码')
             }
             self._add_unique_result(results, '独胆多码', record)
-            
-            if st.session_state.get('debug_mode', False):
-                st.success(f"✅ 检测到聚合独胆多码: {account}, {period}, 聚合号码数量={len(all_numbers)}")
     
     def _analyze_k3_different(self, account, lottery, period, group, results):
         different_categories = ['二不同号', '三不同号']
