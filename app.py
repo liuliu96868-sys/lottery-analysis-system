@@ -1792,16 +1792,17 @@ class AnalysisEngine:
         
         all_numbers_by_position = defaultdict(set)
         
-            for _, row in number_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 新增：基于内容重新分类
-                actual_category = self.normalize_play_category_from_content(content, category, 'PK10')
-                
-                # 增强位置判断：从玩法分类推断位置
-                inferred_position = self._infer_position_from_category(actual_category)  # 使用 actual_category
+        # 修复这里的缩进：整个for循环应该缩进
+        for _, row in number_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
             
+            # 新增：基于内容重新分类
+            actual_category = self.normalize_play_category_from_content(content, category, 'PK10')
+            
+            # 增强位置判断：从玩法分类推断位置
+            inferred_position = self._infer_position_from_category(actual_category)  # 使用 actual_category
+        
             # 使用统一解析器
             bets_by_position = ContentParser.parse_pk10_content(content)
             
@@ -2201,16 +2202,17 @@ class AnalysisEngine:
         
         position_numbers = defaultdict(set)
         
-            for _, row in dingwei_detailed_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 新增：基于内容重新分类
-                actual_category = self.normalize_play_category_from_content(content, category, 'SSC')
-                
-                # 增强位置判断：从玩法分类推断位置
-                inferred_position = self._infer_ssc_position_from_category(actual_category)  # 使用 actual_category
+        # 修复这里的缩进：整个for循环应该缩进
+        for _, row in dingwei_detailed_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
             
+            # 新增：基于内容重新分类
+            actual_category = self.normalize_play_category_from_content(content, category, 'SSC')
+            
+            # 增强位置判断：从玩法分类推断位置
+            inferred_position = self._infer_ssc_position_from_category(actual_category)  # 使用 actual_category
+        
             # 使用统一解析器
             bets_by_position = ContentParser.parse_ssc_content(content)
             
@@ -3120,43 +3122,44 @@ class AnalysisEngine:
         
         position_numbers = defaultdict(set)
         
-            for _, row in dingwei_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 首先使用统一解析器解析竖线格式
-                bets_by_position = self.data_analyzer.parse_3d_content(content)
-                if bets_by_position:
-                    # 如果有解析结果，使用解析出的位置和号码
-                    for position, numbers in bets_by_position.items():
-                        position_numbers[position].update(numbers)
-                    continue
-                
-                # 新增：基于内容重新分类（在原有逻辑之前）
-                actual_category = self.normalize_play_category_from_content(content, category, '3D')
-                
-                # 如果没有竖线格式，使用原有逻辑
-                # 确定位置
-                if '百位' in actual_category:  # 这里要用 actual_category，不是 category
+        # 修复这里的缩进：整个for循环应该缩进
+        for _, row in dingwei_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 首先使用统一解析器解析竖线格式
+            bets_by_position = self.data_analyzer.parse_3d_content(content)
+            if bets_by_position:
+                # 如果有解析结果，使用解析出的位置和号码
+                for position, numbers in bets_by_position.items():
+                    position_numbers[position].update(numbers)
+                continue
+            
+            # 新增：基于内容重新分类（在原有逻辑之前）
+            actual_category = self.normalize_play_category_from_content(content, category, '3D')
+            
+            # 如果没有竖线格式，使用原有逻辑
+            # 确定位置
+            if '百位' in actual_category:  # 这里要用 actual_category，不是 category
+                position = '百位'
+            elif '十位' in actual_category:  # 这里也要用 actual_category
+                position = '十位'
+            elif '个位' in actual_category:  # 这里也要用 actual_category
+                position = '个位'
+            else:
+                # 从内容推断位置
+                if '百位' in content:
                     position = '百位'
-                elif '十位' in actual_category:  # 这里也要用 actual_category
+                elif '十位' in content:
                     position = '十位'
-                elif '个位' in actual_category:  # 这里也要用 actual_category
+                elif '个位' in content:
                     position = '个位'
                 else:
-                    # 从内容推断位置
-                    if '百位' in content:
-                        position = '百位'
-                    elif '十位' in content:
-                        position = '十位'
-                    elif '个位' in content:
-                        position = '个位'
-                    else:
-                        position = '未知位置'
-                
-                # 提取号码
-                numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
-                position_numbers[position].update(numbers)
+                    position = '未知位置'
+            
+            # 提取号码
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
+            position_numbers[position].update(numbers)
         
         # 检查每个位置的超码
         for position, numbers in position_numbers.items():
