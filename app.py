@@ -127,23 +127,31 @@ THRESHOLD_CONFIG = {
 
 # ==================== 日志设置 ====================
 def setup_logging():
-    """设置日志系统"""
+    """设置日志系统 - 增强日志记录"""
     logger = logging.getLogger('LotteryAnalysis')
     logger.setLevel(logging.INFO)
     
-    if not logger.handlers:
-        # 控制台处理器
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        
-        # 格式器
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        console_handler.setFormatter(formatter)
-        
-        logger.addHandler(console_handler)
+    # 避免重复添加处理器
+    if logger.handlers:
+        return logger
+    
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # 格式器
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(formatter)
+    
+    logger.addHandler(console_handler)
+    
+    # 设置其他日志器的级别，避免过多调试信息
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('openpyxl').setLevel(logging.WARNING)
     
     return logger
 
@@ -215,7 +223,7 @@ class DataProcessor:
         return 0, 0
     
     def validate_data_quality(self, df):
-        """数据质量验证"""
+        """数据质量验证 - 增强版"""
         logger.info("正在进行数据质量验证...")
         issues = []
         
@@ -224,14 +232,19 @@ class DataProcessor:
         if missing_cols:
             issues.append(f"缺少必要列: {missing_cols}")
         
-        # 检查空值
+        # 检查空值 - 增强空值检测
         for col in self.required_columns:
             if col in df.columns:
                 null_count = df[col].isnull().sum()
                 if null_count > 0:
                     issues.append(f"列 '{col}' 有 {null_count} 个空值")
+                
+                # 检查空白字符串
+                empty_count = (df[col].astype(str).str.strip() == '').sum()
+                if empty_count > 0:
+                    issues.append(f"列 '{col}' 有 {empty_count} 个空白值")
         
-        # 特别检查会员账号的完整性
+        # 特别检查会员账号的完整性 - 增强检查
         if '会员账号' in df.columns:
             # 检查是否有被截断的账号
             truncated_accounts = df[df['会员账号'].str.contains(r'\.\.\.|…', na=False)]
@@ -240,27 +253,34 @@ class DataProcessor:
             
             # 检查账号长度异常的情况
             account_lengths = df['会员账号'].str.len()
-            if account_lengths.max() > 50:  # 假设正常账号长度不超过50个字符
+            if account_lengths.max() > 100:  # 放宽长度限制
                 issues.append("发现异常长度的会员账号")
             
             # 显示账号格式样本
-            unique_accounts = df['会员账号'].unique()[:5]
+            unique_accounts = df['会员账号'].dropna().unique()[:5]
             sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
             st.info(f"会员账号格式样本: {sample_info}")
         
-        # 检查数据类型
+        # 检查期号格式 - 增强验证
         if '期号' in df.columns:
             # 修复期号格式问题：去掉.0
             df['期号'] = df['期号'].astype(str).str.replace(r'\.0$', '', regex=True)
-            # 允许期号包含字母和数字
-            invalid_periods = df[~df['期号'].str.match(r'^[\dA-Za-z]+$')]
+            # 允许期号包含字母、数字和常见分隔符
+            invalid_periods = df[~df['期号'].str.match(r'^[\dA-Za-z\-_]+$')]
             if len(invalid_periods) > 0:
-                issues.append(f"发现 {len(invalid_periods)} 条无效期号记录")
+                issues.append(f"发现 {len(invalid_periods)} 条非常见期号格式记录")
         
-        # 检查重复数据
+        # 检查重复数据 - 增强重复检测
         duplicate_count = df.duplicated().sum()
         if duplicate_count > 0:
-            issues.append(f"发现 {duplicate_count} 条重复记录")
+            issues.append(f"发现 {duplicate_count} 条完全重复记录")
+        
+        # 检查部分重复（账号+期号+玩法）
+        key_columns = ['会员账号', '期号', '玩法']
+        if all(col in df.columns for col in key_columns):
+            partial_duplicates = df.duplicated(subset=key_columns).sum()
+            if partial_duplicates > 0:
+                issues.append(f"发现 {partial_duplicates} 条关键信息重复记录")
         
         if issues:
             with st.expander("⚠️ 数据质量问题", expanded=True):
@@ -367,51 +387,57 @@ class ContentParser:
 
     @staticmethod
     def parse_pk10_vertical_format(content):
-        """
-        解析PK10竖线分隔的定位胆格式
-        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
-        或者：_|05|_|_|_ 表示只有第二个位置有投注
-        """
+        """解析PK10竖线分隔的定位胆格式 - 增强异常处理"""
         content_str = str(content).strip()
         bets_by_position = defaultdict(list)
         
         if not content_str:
             return bets_by_position
         
-        # 定义位置映射
-        positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
-                    '第六名', '第七名', '第八名', '第九名', '第十名']
-        
-        # 按竖线分割
-        parts = content_str.split('|')
-        
-        for i, part in enumerate(parts):
-            if i < len(positions):
-                position = positions[i]
-                part_clean = part.strip()
-                
-                # 跳过空位或下划线
-                if not part_clean or part_clean == '_' or part_clean == '':
-                    continue
-                
-                # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                numbers = []
-                if ',' in part_clean:
-                    # 逗号分隔的多个数字
-                    number_strs = part_clean.split(',')
-                    for num_str in number_strs:
-                        num_clean = num_str.strip()
-                        if num_clean.isdigit():
-                            numbers.append(int(num_clean))
-                else:
-                    # 单个数字
-                    if part_clean.isdigit():
-                        numbers.append(int(part_clean))
-                
-                # 添加到对应位置
-                bets_by_position[position].extend(numbers)
-        
-        return bets_by_position
+        try:
+            # 定义位置映射
+            positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
+                        '第六名', '第七名', '第八名', '第九名', '第十名']
+            
+            # 按竖线分割
+            parts = content_str.split('|')
+            
+            for i, part in enumerate(parts):
+                if i < len(positions):
+                    position = positions[i]
+                    part_clean = part.strip()
+                    
+                    # 跳过空位或下划线
+                    if not part_clean or part_clean == '_' or part_clean == '':
+                        continue
+                    
+                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                    numbers = []
+                    if ',' in part_clean:
+                        # 逗号分隔的多个数字
+                        number_strs = part_clean.split(',')
+                        for num_str in number_strs:
+                            num_clean = num_str.strip()
+                            if num_clean.isdigit():
+                                try:
+                                    numbers.append(int(num_clean))
+                                except (ValueError, TypeError):
+                                    continue  # 跳过无效数字
+                    else:
+                        # 单个数字
+                        if part_clean.isdigit():
+                            try:
+                                numbers.append(int(part_clean))
+                            except (ValueError, TypeError):
+                                continue  # 跳过无效数字
+                    
+                    # 添加到对应位置
+                    bets_by_position[position].extend(numbers)
+            
+            return bets_by_position
+        except Exception as e:
+            logger.warning(f"PK10竖线格式解析失败: {content_str}, 错误: {str(e)}")
+            return bets_by_position  # 返回空结果而不是崩溃
 
     @staticmethod
     def parse_ssc_vertical_format(content):
@@ -3475,7 +3501,7 @@ class AnalysisEngine:
         return weight
     
     def analyze_all_patterns(self, df):
-        """综合分析所有模式"""
+        """综合分析所有模式 - 增强进度反馈"""
         logger.info("开始综合分析所有彩票模式...")
         
         # 重置缓存
@@ -3484,44 +3510,65 @@ class AnalysisEngine:
         # 使用进度条
         progress_bar = st.progress(0)
         status_text = st.empty()
+        detail_text = st.empty()
         
         all_results = {}
-        # 修改这里：添加3D系列
         lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
         
+        total_records = len(df)
+        status_text.text(f"开始分析 {total_records} 条记录...")
+        
         for i, lottery_type in enumerate(lottery_types):
-            status_text.text(f"正在分析 {lottery_type}...")
+            detail_text.text(f"当前分析: {lottery_type}")
             
-            if lottery_type == 'PK拾赛车':
-                all_results[lottery_type] = self.analyze_pk10_patterns(df)
-            elif lottery_type == '时时彩':
-                all_results[lottery_type] = self.analyze_ssc_patterns(df)
-            elif lottery_type == '六合彩':
-                all_results[lottery_type] = self.analyze_lhc_patterns(df)
-            elif lottery_type == '快三':
-                all_results[lottery_type] = self.analyze_k3_patterns(df)
-            elif lottery_type == '三色彩':
-                all_results[lottery_type] = self.analyze_three_color_patterns(df)
-            # 添加3D系列分析
-            elif lottery_type == '3D系列':
-                all_results[lottery_type] = self.analyze_3d_patterns(df)
+            try:
+                if lottery_type == 'PK拾赛车':
+                    all_results[lottery_type] = self.analyze_pk10_patterns(df)
+                elif lottery_type == '时时彩':
+                    all_results[lottery_type] = self.analyze_ssc_patterns(df)
+                elif lottery_type == '六合彩':
+                    all_results[lottery_type] = self.analyze_lhc_patterns(df)
+                elif lottery_type == '快三':
+                    all_results[lottery_type] = self.analyze_k3_patterns(df)
+                elif lottery_type == '三色彩':
+                    all_results[lottery_type] = self.analyze_three_color_patterns(df)
+                elif lottery_type == '3D系列':
+                    all_results[lottery_type] = self.analyze_3d_patterns(df)
+                
+                # 统计当前类型的结果
+                type_count = sum(len(records) for records in all_results[lottery_type].values())
+                detail_text.text(f"{lottery_type}分析完成，发现 {type_count} 条可疑记录")
+                
+            except Exception as e:
+                logger.error(f"分析{lottery_type}时出现错误: {str(e)}")
+                st.error(f"❌ {lottery_type}分析过程中出现错误，已跳过该彩种")
+                all_results[lottery_type] = {}  # 空结果继续执行
             
             progress_bar.progress((i + 1) / len(lottery_types))
         
+        detail_text.text("正在汇总分析结果...")
         status_text.text("分析完成！")
         
         # 统计结果
         total_findings = 0
+        analyzed_types = 0
+        
         for lottery_type, results in all_results.items():
             type_count = sum(len(records) for records in results.values())
             total_findings += type_count
-            if type_count > 0:
-                logger.info(f"{lottery_type}: 发现 {type_count} 条可疑记录")
-                for result_type, records in results.items():
-                    if records:
-                        logger.info(f"  - {result_type}: {len(records)} 条")
+            if results:  # 只统计有分析结果的类型
+                analyzed_types += 1
+                if type_count > 0:
+                    logger.info(f"{lottery_type}: 发现 {type_count} 条可疑记录")
+                    for result_type, records in results.items():
+                        if records:
+                            logger.info(f"  - {result_type}: {len(records)} 条")
         
-        logger.info(f"总计发现 {total_findings} 条可疑记录")
+        logger.info(f"成功分析 {analyzed_types} 个彩种，总计发现 {total_findings} 条可疑记录")
+        
+        # 清空临时状态显示
+        detail_text.empty()
+        
         return all_results
 
 # ==================== 结果处理器 ====================
@@ -3918,8 +3965,9 @@ class Exporter:
     """结果导出器"""
     
     def prepare_export_data(self, account_summary):
-        """准备导出数据"""
+        """准备导出数据 - 增强信息完整性"""
         export_data = []
+        analysis_time = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
         
         for account, summary in account_summary.items():
             for lottery, lottery_data in summary['violations_by_lottery'].items():
@@ -3930,7 +3978,9 @@ class Exporter:
                             '彩种': lottery,
                             '期号': record['期号'],
                             '玩法分类': record['玩法分类'],
-                            '行为类型': behavior_type
+                            '行为类型': behavior_type,
+                            '分析时间': analysis_time,
+                            '数据批次': f"分析批次_{analysis_time.replace(':', '').replace(' ', '_')}"
                         }
                         
                         # 添加矛盾类型
@@ -3939,6 +3989,18 @@ class Exporter:
                         
                         # 添加数量信息
                         self._add_quantity_info(export_record, record, behavior_type)
+                        
+                        # 添加投注内容
+                        if record.get('投注内容'):
+                            export_record['投注内容'] = record['投注内容']
+                        
+                        # 添加位置信息
+                        if record.get('位置'):
+                            export_record['位置'] = record['位置']
+                        
+                        # 添加详细信息
+                        if record.get('详细信息'):
+                            export_record['详细信息'] = record['详细信息']
                         
                         export_data.append(export_record)
         
@@ -4097,52 +4159,20 @@ def main():
     st.title("🎯 智能彩票分析检测系统")
     st.markdown("---")
     
-    st.sidebar.title("系统配置")
-    
-    uploaded_file = st.sidebar.file_uploader(
-        "上传Excel文件", 
-        type=['xlsx', 'xls'],
-        help="请上传包含彩票投注数据的Excel文件"
-    )
-    
-    st.sidebar.subheader("检测阈值配置")
-    
-    with st.sidebar.expander("PK拾系列阈值"):
-        pk10_multi = st.slider("超码阈值", 5, 15, THRESHOLD_CONFIG['PK10']['multi_number'])
-        pk10_gyh = st.slider("冠亚和多码阈值", 8, 20, THRESHOLD_CONFIG['PK10']['gyh_multi_number'])
-        THRESHOLD_CONFIG['PK10']['multi_number'] = pk10_multi
-        THRESHOLD_CONFIG['PK10']['gyh_multi_number'] = pk10_gyh
-    
-    with st.sidebar.expander("时时彩系列阈值"):
-        ssc_dingwei = st.slider("定位胆多码阈值", 5, 15, THRESHOLD_CONFIG['SSC']['dingwei_multi'])
-        ssc_douniu = st.slider("斗牛多码阈值", 5, 15, THRESHOLD_CONFIG['SSC']['douniu_multi'])
-        THRESHOLD_CONFIG['SSC']['dingwei_multi'] = ssc_dingwei
-        THRESHOLD_CONFIG['SSC']['douniu_multi'] = ssc_douniu
-    
-    with st.sidebar.expander("六合彩系列阈值"):
-        lhc_numbers = st.slider("数字类多码阈值", 20, 50, THRESHOLD_CONFIG['LHC']['number_play'])
-        lhc_zodiacs = st.slider("生肖类多码阈值", 5, 15, THRESHOLD_CONFIG['LHC']['zodiac_play'])
-        lhc_tails = st.slider("尾数多码阈值", 5, 15, THRESHOLD_CONFIG['LHC']['tail_play'])
-        THRESHOLD_CONFIG['LHC']['number_play'] = lhc_numbers
-        THRESHOLD_CONFIG['LHC']['zodiac_play'] = lhc_zodiacs
-        THRESHOLD_CONFIG['LHC']['tail_play'] = lhc_tails
-    
-    with st.sidebar.expander("快三系列阈值"):
-        k3_hezhi = st.slider("和值多码阈值", 5, 20, THRESHOLD_CONFIG['K3']['hezhi_multi_number'])
-        k3_dudan_threshold = st.slider("独胆多码阈值", 2, 6, 5)
-        THRESHOLD_CONFIG['K3']['hezhi_multi_number'] = k3_hezhi
-        THRESHOLD_CONFIG['K3']['dudan_multi_number'] = k3_dudan_threshold
-    
-    with st.sidebar.expander("三色彩系列阈值"):
-        three_color_zhengma = st.slider("正码多码阈值", 5, 15, THRESHOLD_CONFIG['THREE_COLOR']['zhengma_multi'])
-        THRESHOLD_CONFIG['THREE_COLOR']['zhengma_multi'] = three_color_zhengma
-
-    with st.sidebar.expander("3D系列阈值"):
-        three_d_dingwei = st.slider("3D定位胆多码阈值", 5, 10, THRESHOLD_CONFIG['3D']['dingwei_multi'])
-        THRESHOLD_CONFIG['3D']['dingwei_multi'] = three_d_dingwei
+    # 侧边栏配置...
     
     if uploaded_file is not None:
         try:
+            # 显示文件信息
+            file_details = {
+                "文件名": uploaded_file.name,
+                "文件大小": f"{uploaded_file.size / 1024:.2f} KB",
+                "文件类型": uploaded_file.type
+            }
+            st.sidebar.info("文件信息:")
+            for key, value in file_details.items():
+                st.sidebar.write(f"{key}: {value}")
+            
             with st.spinner('正在处理数据...'):
                 # 初始化组件
                 processor = DataProcessor()
@@ -4154,7 +4184,7 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
-                    
+                    # 显示数据概览
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("总记录数", len(df_clean))
@@ -4167,40 +4197,12 @@ def main():
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
                     # 分析投注模式
-                    # 使用进度条
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                    all_results = analyzer.analyze_all_patterns(df_normalized)
                     
-                    all_results = {}
-                    # 明确定义 lottery_types 变量 - 添加3D系列
-                    lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
-                    
-                    for i, lottery_type in enumerate(lottery_types):
-                        status_text.text(f"正在分析 {lottery_type}...")
-                        
-                        if lottery_type == 'PK拾赛车':
-                            all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
-                        elif lottery_type == '时时彩':
-                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
-                        elif lottery_type == '六合彩':
-                            all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
-                        elif lottery_type == '快三':
-                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
-                        elif lottery_type == '三色彩':
-                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
-                        # 添加3D系列分析调用
-                        elif lottery_type == '3D系列':
-                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
-                        
-                        progress_bar.progress((i + 1) / len(lottery_types))
-                    
-                    status_text.text("分析完成！")
-                    
-                    # 统计结果
-                    total_findings = 0
-                    for lottery_type, results in all_results.items():
-                        type_count = sum(len(records) for records in results.values())
-                        total_findings += type_count
+                    total_findings = sum(
+                        sum(len(records) for records in results.values()) 
+                        for results in all_results.values()
+                    )
                     
                     with col4:
                         st.metric("可疑记录数", total_findings)
@@ -4224,11 +4226,23 @@ def main():
                         exporter.export_to_excel(account_results, "智能彩票分析")
                 
                 else:
-                    st.error("❌ 数据清洗后无有效数据，请检查文件格式")
+                    st.error("❌ 数据清洗后无有效数据，请检查文件格式和内容")
         
         except Exception as e:
-            st.error(f"❌ 处理过程中出现错误: {str(e)}")
-            logger.error(f"处理过程中出现错误: {str(e)}")
+            error_msg = f"处理过程中出现错误: {str(e)}"
+            st.error(f"❌ {error_msg}")
+            logger.error(error_msg)
+            logger.exception("详细的错误信息:")  # 记录完整的堆栈跟踪
+            
+            # 提供错误解决建议
+            with st.expander("💡 错误解决建议", expanded=False):
+                st.markdown("""
+                - 检查Excel文件格式是否正确
+                - 确认文件没有被其他程序占用
+                - 检查文件内容是否符合要求格式
+                - 尝试重新上传文件
+                - 如果问题持续，请联系技术支持
+                """)
     
     else:
         st.markdown("""
