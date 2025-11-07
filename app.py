@@ -1444,6 +1444,99 @@ class AnalysisEngine:
         self.data_analyzer = DataAnalyzer()
         self.normalizer = PlayCategoryNormalizer()
         self.seen_records = set()  # 用于记录已检测的记录
+
+    def parse_play_content_enhanced(self, content, current_category, lottery_type):
+        """增强版内容解析 - 返回实际玩法分类和投注内容"""
+        content_str = str(content)
+        
+        # 根据彩种类型定义玩法关键字映射
+        play_keywords_mapping = {
+            'LHC': {
+                # 尾数玩法
+                '特尾': '特尾',
+                '全尾': '全尾',
+                '头尾数': '尾数_头尾数',
+                '尾数': '尾数',
+                # 正码特玩法
+                '正码一特': '正1特',
+                '正码二特': '正2特', 
+                '正码三特': '正3特',
+                '正码四特': '正4特',
+                '正码五特': '正5特',
+                '正码六特': '正6特',
+                # 连肖玩法
+                '二连肖': '连肖连尾_二连肖',
+                '三连肖': '连肖连尾_三连肖',
+                '四连肖': '连肖连尾_四连肖', 
+                '五连肖': '连肖连尾_五连肖',
+                # 连尾玩法
+                '二连尾': '连肖连尾_二连尾',
+                '三连尾': '连肖连尾_三连尾',
+                '四连尾': '连肖连尾_四连尾',
+                '五连尾': '连肖连尾_五连尾'
+            },
+            'PK10': {
+                # 位置信息
+                '冠军': '冠军',
+                '亚军': '亚军',
+                '第三名': '第三名',
+                '第四名': '第四名',
+                '第五名': '第五名',
+                '第六名': '第六名', 
+                '第七名': '第七名',
+                '第八名': '第八名',
+                '第九名': '第九名',
+                '第十名': '第十名',
+                '前一': '冠军'
+            },
+            'SSC': {
+                # 位置信息
+                '第1球': '第1球',
+                '第2球': '第2球',
+                '第3球': '第3球',
+                '第4球': '第4球', 
+                '第5球': '第5球',
+                '万位': '第1球',
+                '千位': '第2球',
+                '百位': '第3球',
+                '十位': '第4球',
+                '个位': '第5球'
+            },
+            '3D': {
+                # 位置信息
+                '百位': '百位',
+                '十位': '十位',
+                '个位': '个位'
+            }
+        }
+        
+        # 获取对应彩种的玩法映射
+        play_keywords = play_keywords_mapping.get(lottery_type, {})
+        
+        # 检查内容中是否包含玩法关键字
+        detected_play_method = None
+        for keyword, play_method in play_keywords.items():
+            if keyword in content_str:
+                detected_play_method = play_method
+                break
+        
+        # 提取投注内容
+        bet_content = content_str
+        if '-' in content_str:
+            parts = content_str.split('-', 1)
+            if len(parts) == 2:
+                bet_content = parts[1].strip()
+        
+        return detected_play_method, bet_content
+
+    def normalize_play_category_from_content(self, content, current_category, lottery_type):
+        """基于内容统一标准化玩法分类"""
+        detected_play_method, _ = self.parse_play_content_enhanced(content, current_category, lottery_type)
+        
+        if detected_play_method:
+            return detected_play_method
+        else:
+            return current_category
     
     def _get_record_hash(self, record):
         """生成记录的唯一哈希值"""
@@ -1699,12 +1792,15 @@ class AnalysisEngine:
         
         all_numbers_by_position = defaultdict(set)
         
-        for _, row in number_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 增强位置判断：从玩法分类推断位置
-            inferred_position = self._infer_position_from_category(category)
+            for _, row in number_group.iterrows():
+                content = str(row['内容'])
+                category = str(row['玩法分类'])
+                
+                # 新增：基于内容重新分类
+                actual_category = self.normalize_play_category_from_content(content, category, 'PK10')
+                
+                # 增强位置判断：从玩法分类推断位置
+                inferred_position = self._infer_position_from_category(actual_category)  # 使用 actual_category
             
             # 使用统一解析器
             bets_by_position = ContentParser.parse_pk10_content(content)
@@ -2105,12 +2201,15 @@ class AnalysisEngine:
         
         position_numbers = defaultdict(set)
         
-        for _, row in dingwei_detailed_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 增强位置判断：从玩法分类推断位置
-            inferred_position = self._infer_ssc_position_from_category(category)
+            for _, row in dingwei_detailed_group.iterrows():
+                content = str(row['内容'])
+                category = str(row['玩法分类'])
+                
+                # 新增：基于内容重新分类
+                actual_category = self.normalize_play_category_from_content(content, category, 'SSC')
+                
+                # 增强位置判断：从玩法分类推断位置
+                inferred_position = self._infer_ssc_position_from_category(actual_category)  # 使用 actual_category
             
             # 使用统一解析器
             bets_by_position = ContentParser.parse_ssc_content(content)
@@ -2213,8 +2312,8 @@ class AnalysisEngine:
                     content = str(row['内容'])
                     category = str(row['玩法分类'])
                     
-                    # 统一标准化尾数玩法分类
-                    actual_category = self.normalize_tail_play_category(content, category)
+                    # 新增：基于内容重新分类
+                    actual_category = self.normalize_play_category_from_content(content, category, 'LHC')
                     
                     clean_content = self.data_analyzer.parse_lhc_special_content(content)
                     tails = self.data_analyzer.extract_tails_from_content(clean_content)
@@ -2728,6 +2827,11 @@ class AnalysisEngine:
             
             for _, row in category_group.iterrows():
                 content = str(row['内容'])
+                category = str(row['玩法分类'])
+                
+                # 新增：基于内容重新分类
+                actual_category = self.normalize_play_category_from_content(content, category, 'LHC')
+                
                 clean_content = self.data_analyzer.parse_lhc_special_content(content)
                 
                 # 提取数字
@@ -2789,6 +2893,11 @@ class AnalysisEngine:
             
             for _, row in category_group.iterrows():
                 content = str(row['内容'])
+                category = str(row['玩法分类'])
+                
+                # 新增：基于内容重新分类
+                actual_category = self.normalize_play_category_from_content(content, category, 'LHC')
+                
                 zodiacs = self.data_analyzer.extract_zodiacs_from_content(content)
                 
                 # 超过阈值检测
@@ -3011,40 +3120,43 @@ class AnalysisEngine:
         
         position_numbers = defaultdict(set)
         
-        for _, row in dingwei_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 首先使用统一解析器解析竖线格式
-            bets_by_position = self.data_analyzer.parse_3d_content(content)
-            if bets_by_position:
-                # 如果有解析结果，使用解析出的位置和号码
-                for position, numbers in bets_by_position.items():
-                    position_numbers[position].update(numbers)
-                continue
-            
-            # 如果没有竖线格式，使用原有逻辑
-            # 确定位置
-            if '百位' in category:
-                position = '百位'
-            elif '十位' in category:
-                position = '十位'
-            elif '个位' in category:
-                position = '个位'
-            else:
-                # 从内容推断位置
-                if '百位' in content:
+            for _, row in dingwei_group.iterrows():
+                content = str(row['内容'])
+                category = str(row['玩法分类'])
+                
+                # 首先使用统一解析器解析竖线格式
+                bets_by_position = self.data_analyzer.parse_3d_content(content)
+                if bets_by_position:
+                    # 如果有解析结果，使用解析出的位置和号码
+                    for position, numbers in bets_by_position.items():
+                        position_numbers[position].update(numbers)
+                    continue
+                
+                # 新增：基于内容重新分类（在原有逻辑之前）
+                actual_category = self.normalize_play_category_from_content(content, category, '3D')
+                
+                # 如果没有竖线格式，使用原有逻辑
+                # 确定位置
+                if '百位' in actual_category:  # 这里要用 actual_category，不是 category
                     position = '百位'
-                elif '十位' in content:
+                elif '十位' in actual_category:  # 这里也要用 actual_category
                     position = '十位'
-                elif '个位' in content:
+                elif '个位' in actual_category:  # 这里也要用 actual_category
                     position = '个位'
                 else:
-                    position = '未知位置'
-            
-            # 提取号码
-            numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
-            position_numbers[position].update(numbers)
+                    # 从内容推断位置
+                    if '百位' in content:
+                        position = '百位'
+                    elif '十位' in content:
+                        position = '十位'
+                    elif '个位' in content:
+                        position = '个位'
+                    else:
+                        position = '未知位置'
+                
+                # 提取号码
+                numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
+                position_numbers[position].update(numbers)
         
         # 检查每个位置的超码
         for position, numbers in position_numbers.items():
