@@ -2029,7 +2029,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '十个位置全投', record)
     
     def _collect_position_bets_from_plays(self, account, lottery, period, group, all_position_bets):
-        """从各种玩法中收集位置投注信息"""
+        """从各种玩法中收集位置投注信息 - 增强版本，记录具体投注内容"""
         
         # 1. 从两面玩法收集
         two_sides_categories = ['两面', '双面']
@@ -2062,19 +2062,21 @@ class AnalysisEngine:
             else:
                 continue
             
-            # 提取投注类型
+            # 提取具体的投注内容
             if '大小' in category:
                 bets = self.data_analyzer.extract_size_parity_from_content(content)
                 # 只关注大小
                 size_bets = [bet for bet in bets if bet in ['大', '小']]
                 if size_bets:
-                    all_position_bets[position].add('大小类')
+                    # 记录具体的投注内容，而不是笼统的"大小类"
+                    all_position_bets[position].update(size_bets)
             elif '单双' in category:
                 bets = self.data_analyzer.extract_size_parity_from_content(content)
                 # 只关注单双
                 parity_bets = [bet for bet in bets if bet in ['单', '双']]
                 if parity_bets:
-                    all_position_bets[position].add('单双类')
+                    # 记录具体的投注内容，而不是笼统的"单双类"
+                    all_position_bets[position].update(parity_bets)
         
         # 3. 从号码类玩法收集（定位胆等）
         number_categories = [
@@ -2094,10 +2096,10 @@ class AnalysisEngine:
             
             for position, numbers in bets_by_position.items():
                 if numbers:  # 如果有号码投注
-                    all_position_bets[position].add('号码类')
+                    all_position_bets[position].add('号码')
     
     def _extract_position_bets_from_content(self, content, all_position_bets):
-        """从内容中提取位置投注信息"""
+        """从内容中提取位置投注信息 - 增强版本，记录具体投注内容"""
         content_str = str(content)
         
         if '-' in content_str:
@@ -2109,39 +2111,56 @@ class AnalysisEngine:
                         position = self.data_analyzer._normalize_pk10_position(position)
                         bet_option = bet_option.strip()
                         
-                        # 分类投注类型
-                        if bet_option in ['大', '小']:
-                            all_position_bets[position].add('大小类')
-                        elif bet_option in ['单', '双']:
-                            all_position_bets[position].add('单双类')
-                        elif bet_option in ['龙', '虎']:
-                            all_position_bets[position].add('龙虎类')
+                        # 直接记录具体的投注类型，而不是分类
+                        if bet_option in ['大', '小', '单', '双']:
+                            all_position_bets[position].add(bet_option)
                     except ValueError:
                         continue
     
     def _analyze_bet_types(self, all_position_bets, standard_positions):
-        """分析投注类型"""
-        size_count = 0
-        parity_count = 0
+        """分析投注类型 - 最终修复版本"""
+        # 统计每个具体投注类型的数量
+        size_bets_count = {'大': 0, '小': 0}
+        parity_bets_count = {'单': 0, '双': 0}
         number_count = 0
         
         for position in standard_positions:
             if position in all_position_bets:
                 bets = all_position_bets[position]
-                if '大小类' in bets:
-                    size_count += 1
-                if '单双类' in bets:
-                    parity_count += 1
-                if '号码类' in bets:
+                
+                # 统计具体的大小投注
+                if '大' in bets:
+                    size_bets_count['大'] += 1
+                if '小' in bets:
+                    size_bets_count['小'] += 1
+                
+                # 统计具体的单双投注
+                if '单' in bets:
+                    parity_bets_count['单'] += 1
+                if '双' in bets:
+                    parity_bets_count['双'] += 1
+                
+                # 号码类投注（如果有的话）
+                if '号码' in bets:
                     number_count += 1
         
-        # 构建投注类型描述
+        # 构建准确的投注类型描述
         bet_types = []
-        if size_count >= 8:  # 大部分位置都投注了大小
-            bet_types.append('大小')
-        if parity_count >= 8:  # 大部分位置都投注了单双
-            bet_types.append('单双')
-        if number_count >= 8:  # 大部分位置都投注了号码
+        
+        # 大小投注：只有当一个类型在8个或以上位置出现时才显示
+        for size_type, count in size_bets_count.items():
+            if count >= 8:
+                bet_types.append(size_type)
+                break  # 只显示主要的大小类型
+        
+        # 单双投注：只有当一个类型在8个或以上位置出现时才显示
+        for parity_type, count in parity_bets_count.items():
+            if count >= 8:
+                bet_types.append(parity_type)
+                break  # 只显示主要的单双类型
+        
+        # 号码投注
+        if number_count >= 8:
             bet_types.append('号码')
         
         return '、'.join(bet_types) if bet_types else '混合投注'
