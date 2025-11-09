@@ -92,6 +92,7 @@ THRESHOLD_CONFIG = {
         'multi_number': 8,
         'gyh_multi_number': 12,
         'position_multi': 8,
+        'all_positions_bet': 10
     },
     'K3': {
         'multi_number': 5,
@@ -1654,6 +1655,7 @@ class AnalysisEngine:
             self._analyze_pk10_independent_plays(account, lottery, period, group, results)
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
             self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
+            self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
         
         progress_bar.progress(1.0)
         status_text.text("PK10分析完成!")
@@ -1988,6 +1990,161 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+
+    def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
+        """检测PK10十个位置全投情况"""
+        
+        # 定义十个标准位置
+        standard_positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
+                             '第六名', '第七名', '第八名', '第九名', '第十名']
+        
+        # 收集所有位置投注
+        all_position_bets = defaultdict(set)
+        
+        # 分析各种玩法中的位置投注
+        self._collect_position_bets_from_plays(account, lottery, period, group, all_position_bets)
+        
+        # 检查是否有十个位置都有投注
+        positions_with_bets = set()
+        
+        for position in standard_positions:
+            if position in all_position_bets and all_position_bets[position]:
+                positions_with_bets.add(position)
+        
+        # 如果十个位置都有投注
+        if len(positions_with_bets) >= THRESHOLD_CONFIG['PK10']['all_positions_bet']:
+            # 分析投注类型（大小或单双）
+            bet_types = self._analyze_bet_types(all_position_bets, standard_positions)
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '全位置投注',
+                '投注位置数': len(positions_with_bets),
+                '投注类型': bet_types,
+                '投注内容': f"十个位置全投: {bet_types}",
+                '排序权重': self._calculate_sort_weight({'投注位置数': len(positions_with_bets)}, '十个位置全投')
+            }
+            self._add_unique_result(results, '十个位置全投', record)
+    
+    def _collect_position_bets_from_plays(self, account, lottery, period, group, all_position_bets):
+        """从各种玩法中收集位置投注信息"""
+        
+        # 1. 从两面玩法收集
+        two_sides_categories = ['两面', '双面']
+        two_sides_group = group[group['玩法分类'].isin(two_sides_categories)]
+        
+        for _, row in two_sides_group.iterrows():
+            content = str(row['内容'])
+            self._extract_position_bets_from_content(content, all_position_bets)
+        
+        # 2. 从独立玩法收集（大小单双龙虎）
+        independent_categories = [
+            '大小_冠军', '大小_亚军', '大小_季军',
+            '单双_冠军', '单双_亚军', '单双_季军',
+            '龙虎_冠军', '龙虎_亚军', '龙虎_季军'
+        ]
+        
+        independent_group = group[group['玩法分类'].isin(independent_categories)]
+        
+        for _, row in independent_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 确定位置
+            if '冠军' in category or '前一' in category:
+                position = '冠军'
+            elif '亚军' in category:
+                position = '亚军'
+            elif '季军' in category:
+                position = '第三名'
+            else:
+                continue
+            
+            # 提取投注类型
+            if '大小' in category:
+                bets = self.data_analyzer.extract_size_parity_from_content(content)
+                # 只关注大小
+                size_bets = [bet for bet in bets if bet in ['大', '小']]
+                if size_bets:
+                    all_position_bets[position].add('大小类')
+            elif '单双' in category:
+                bets = self.data_analyzer.extract_size_parity_from_content(content)
+                # 只关注单双
+                parity_bets = [bet for bet in bets if bet in ['单', '双']]
+                if parity_bets:
+                    all_position_bets[position].add('单双类')
+        
+        # 3. 从号码类玩法收集（定位胆等）
+        number_categories = [
+            '1-5名', '6-10名', '冠军', '前一', '亚军', '第三名', '第四名', '第五名',
+            '第六名', '第七名', '第八名', '第九名', '第十名', '定位胆',
+            '定位胆_第1~5名', '定位胆_第6~10名'
+        ]
+        
+        number_group = group[group['玩法分类'].isin(number_categories)]
+        
+        for _, row in number_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 使用统一解析器解析位置
+            bets_by_position = ContentParser.parse_pk10_content(content)
+            
+            for position, numbers in bets_by_position.items():
+                if numbers:  # 如果有号码投注
+                    all_position_bets[position].add('号码类')
+    
+    def _extract_position_bets_from_content(self, content, all_position_bets):
+        """从内容中提取位置投注信息"""
+        content_str = str(content)
+        
+        if '-' in content_str:
+            parts = content_str.split(',')
+            for part in parts:
+                if '-' in part:
+                    try:
+                        position, bet_option = part.split('-', 1)
+                        position = self.data_analyzer._normalize_pk10_position(position)
+                        bet_option = bet_option.strip()
+                        
+                        # 分类投注类型
+                        if bet_option in ['大', '小']:
+                            all_position_bets[position].add('大小类')
+                        elif bet_option in ['单', '双']:
+                            all_position_bets[position].add('单双类')
+                        elif bet_option in ['龙', '虎']:
+                            all_position_bets[position].add('龙虎类')
+                    except ValueError:
+                        continue
+    
+    def _analyze_bet_types(self, all_position_bets, standard_positions):
+        """分析投注类型"""
+        size_count = 0
+        parity_count = 0
+        number_count = 0
+        
+        for position in standard_positions:
+            if position in all_position_bets:
+                bets = all_position_bets[position]
+                if '大小类' in bets:
+                    size_count += 1
+                if '单双类' in bets:
+                    parity_count += 1
+                if '号码类' in bets:
+                    number_count += 1
+        
+        # 构建投注类型描述
+        bet_types = []
+        if size_count >= 8:  # 大部分位置都投注了大小
+            bet_types.append('大小')
+        if parity_count >= 8:  # 大部分位置都投注了单双
+            bet_types.append('单双')
+        if number_count >= 8:  # 大部分位置都投注了号码
+            bet_types.append('号码')
+        
+        return '、'.join(bet_types) if bet_types else '混合投注'
 
     # =============== 时时彩分析方法 ===============
     def analyze_ssc_patterns(self, df):
@@ -3674,7 +3831,8 @@ class ResultProcessor:
                 '两面矛盾': '两面矛盾',
                 '独立玩法矛盾': '独立玩法矛盾',
                 '前一多码': '前一多码',
-                '龙虎矛盾': '龙虎矛盾'
+                '龙虎矛盾': '龙虎矛盾',
+                '十个位置全投': '十个位置全投'
             },
             '快三': {
                 '和值多码': '和值多码',
@@ -4093,6 +4251,9 @@ class Exporter:
             '独胆多码': ('号码数量', '投注内容'),
             '不同号全包': ('号码数量', '投注内容'),
             '两面矛盾': (None, '投注内容'),
+
+            # PK10新增
+            '十个位置全投': ('投注位置数', '投注内容'),
             
             # 六合彩相关
             '数字类多码': ('号码数量', '投注内容'),
