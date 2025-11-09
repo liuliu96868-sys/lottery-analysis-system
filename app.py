@@ -2464,7 +2464,7 @@ class AnalysisEngine:
 
     # =============== 六合彩分析方法 ===============
     def analyze_lhc_patterns(self, df):
-        """分析六合彩投注模式 - 添加调试信息"""
+        """分析六合彩投注模式 - 添加详细调试信息"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
@@ -2490,11 +2490,18 @@ class AnalysisEngine:
         group_count = 0
         for (account, lottery, period), group in grouped:
             group_count += 1
-            print(f"处理第 {group_count} 组: {account}, {lottery}, {period}")
             
             # 打印该组的玩法分类
             group_categories = group['玩法分类'].value_counts()
+            print(f"处理第 {group_count} 组: {account}, {lottery}, {period}")
             print(f"  该组玩法分类: {dict(group_categories)}")
+            
+            # 检查连肖相关的记录
+            lianxiao_records = group[group['玩法分类'].str.contains('连肖', na=False)]
+            if not lianxiao_records.empty:
+                print(f"  发现 {len(lianxiao_records)} 条连肖相关记录:")
+                for _, record in lianxiao_records.iterrows():
+                    print(f"    - 玩法分类: {record['玩法分类']}, 内容: {record['内容']}")
             
             # 使用修复的详细连肖检测
             self._analyze_lhc_lianxiao(account, lottery, period, group, results)
@@ -2515,6 +2522,12 @@ class AnalysisEngine:
             self._analyze_lhc_banbo(account, lottery, period, group, results)
         
         print(f"六合彩分析完成，检测到 {sum(len(v) for v in results.values())} 条违规记录")
+        # 打印检测到的连肖连尾违规
+        lianxiao_violations = [k for k in results.keys() if '连肖' in k]
+        lianwei_violations = [k for k in results.keys() if '连尾' in k]
+        print(f"  连肖违规: {lianxiao_violations}")
+        print(f"  连尾违规: {lianwei_violations}")
+        
         return results
     
     def _analyze_lhc_tail_plays(self, df_target, results):
@@ -2996,30 +3009,22 @@ class AnalysisEngine:
             self._add_unique_result(results, '五行多组', record)
     
     def _analyze_lhc_lianxiao(self, account, lottery, period, group, results):
-        """分析六合彩连肖玩法 - 修复版本"""
-        # 定义连肖类型及其对应的合理生肖数量阈值 - 降低阈值以便检测
+        """分析六合彩连肖玩法 - 修复版本，确保区分具体类型"""
+        # 定义连肖类型及其对应的阈值
         lianxiao_config = {
-            '二连肖': {'max_reasonable': 4, 'threshold': 5},  # 降低阈值到5
-            '三连肖': {'max_reasonable': 5, 'threshold': 6},  # 降低阈值到6  
-            '四连肖': {'max_reasonable': 6, 'threshold': 7},  # 降低阈值到7
-            '五连肖': {'max_reasonable': 7, 'threshold': 8},  # 降低阈值到8
-            # 添加通用连肖类型，用于处理未明确分类的情况
-            '连肖': {'max_reasonable': 5, 'threshold': 6},
+            '二连肖': {'threshold': 7},
+            '三连肖': {'threshold': 7},  
+            '四连肖': {'threshold': 7},
+            '五连肖': {'threshold': 8},
         }
         
+        # 首先检查具体的连肖类型
         for lianxiao_type, config in lianxiao_config.items():
-            # 对于通用连肖类型，匹配所有包含"连肖"的分类
-            if lianxiao_type == '连肖':
-                lianxiao_group = group[group['玩法分类'].str.contains('连肖', na=False)]
-            else:
-                lianxiao_group = group[group['玩法分类'] == lianxiao_type]
+            lianxiao_group = group[group['玩法分类'] == lianxiao_type]
             
             for _, row in lianxiao_group.iterrows():
                 content = str(row['内容'])
                 category = str(row['玩法分类'])
-                
-                # 调试信息
-                print(f"检测连肖: {category}, 内容: {content}")
                 
                 # 解析玩法-投注内容格式
                 if '-' in content:
@@ -3029,9 +3034,6 @@ class AnalysisEngine:
                     bet_content = content
                     
                 zodiacs = self.data_analyzer.extract_zodiacs_from_content(bet_content)
-                
-                # 调试信息
-                print(f"提取到生肖: {zodiacs}, 数量: {len(zodiacs)}")
                 
                 # 使用针对具体连肖类型的阈值
                 if len(zodiacs) >= config['threshold']:
@@ -3046,34 +3048,80 @@ class AnalysisEngine:
                         '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{lianxiao_type}多肖')
                     }
                     self._add_unique_result(results, f'{lianxiao_type}多肖', record)
-                    print(f"检测到连肖多肖: {lianxiao_type}, {len(zodiacs)}生肖")
+        
+        # 然后检查通用的连肖类型（作为后备）
+        generic_lianxiao_group = group[group['玩法分类'] == '连肖']
+        if not generic_lianxiao_group.empty:
+            # 尝试从内容中推断具体类型
+            for _, row in generic_lianxiao_group.iterrows():
+                content = str(row['内容'])
+                
+                # 从内容中推断具体连肖类型
+                inferred_type = self._infer_lianxiao_type_from_content(content)
+                
+                # 解析玩法-投注内容格式
+                if '-' in content:
+                    parts = content.split('-', 1)
+                    bet_content = parts[1].strip()
+                else:
+                    bet_content = content
+                    
+                zodiacs = self.data_analyzer.extract_zodiacs_from_content(bet_content)
+                
+                # 根据推断的类型使用相应的阈值，如果没有推断出类型则使用通用阈值
+                if inferred_type and inferred_type in lianxiao_config:
+                    threshold = lianxiao_config[inferred_type]['threshold']
+                    display_type = inferred_type
+                else:
+                    threshold = 6  # 通用阈值
+                    display_type = '连肖'
+                
+                if len(zodiacs) >= threshold:
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': f"{display_type}（{len(zodiacs)}生肖）",
+                        '违规类型': f'{display_type}多肖',
+                        '生肖数量': len(zodiacs),
+                        '投注内容': ', '.join(sorted(zodiacs)),
+                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{display_type}多肖')
+                    }
+                    self._add_unique_result(results, f'{display_type}多肖', record)
+    
+    def _infer_lianxiao_type_from_content(self, content):
+        """从内容中推断连肖类型"""
+        content_str = str(content)
+        
+        # 从内容中查找具体类型
+        if '二连肖' in content_str:
+            return '二连肖'
+        elif '三连肖' in content_str:
+            return '三连肖'
+        elif '四连肖' in content_str:
+            return '四连肖'
+        elif '五连肖' in content_str:
+            return '五连肖'
+        
+        return None
     
     def _analyze_lhc_lianwei(self, account, lottery, period, group, results):
-        """分析六合彩连尾玩法 - 修复版本"""
-        # 定义连尾类型及其对应的合理尾数数量阈值 - 降低阈值
+        """分析六合彩连尾玩法 - 修复版本，确保区分具体类型"""
+        # 定义连尾类型及其对应的阈值
         lianwei_config = {
-            '二连尾': {'max_reasonable': 4, 'threshold': 5},  # 降低阈值到5
-            '三连尾': {'max_reasonable': 5, 'threshold': 6},  # 降低阈值到6
-            '四连尾': {'max_reasonable': 6, 'threshold': 7},  # 降低阈值到7  
-            '五连尾': {'max_reasonable': 7, 'threshold': 8},  # 降低阈值到8
-            # 添加通用连尾类型
-            '连尾': {'max_reasonable': 5, 'threshold': 6},
+            '二连尾': {'threshold': 7},
+            '三连尾': {'threshold': 7},
+            '四连尾': {'threshold': 7},  
+            '五连尾': {'threshold': 8},
         }
         
+        # 首先检查具体的连尾类型
         for lianwei_type, config in lianwei_config.items():
-            # 对于通用连尾类型，匹配所有包含"连尾"的分类
-            if lianwei_type == '连尾':
-                lianwei_group = group[group['玩法分类'].str.contains('连尾', na=False)]
-            else:
-                lianwei_group = group[group['玩法分类'] == lianwei_type]
+            lianwei_group = group[group['玩法分类'] == lianwei_type]
             
             for _, row in lianwei_group.iterrows():
                 content = str(row['内容'])
                 tails = self.data_analyzer.extract_tails_from_content(content)
-                
-                # 调试信息
-                print(f"检测连尾: {lianwei_type}, 内容: {content}")
-                print(f"提取到尾数: {tails}, 数量: {len(tails)}")
                 
                 # 使用针对具体连尾类型的阈值
                 if len(tails) >= config['threshold']:
@@ -3088,7 +3136,55 @@ class AnalysisEngine:
                         '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{lianwei_type}多尾')
                     }
                     self._add_unique_result(results, f'{lianwei_type}多尾', record)
-                    print(f"检测到连尾多尾: {lianwei_type}, {len(tails)}尾")
+        
+        # 然后检查通用的连尾类型（作为后备）
+        generic_lianwei_group = group[group['玩法分类'] == '连尾']
+        if not generic_lianwei_group.empty:
+            # 尝试从内容中推断具体类型
+            for _, row in generic_lianwei_group.iterrows():
+                content = str(row['内容'])
+                
+                # 从内容中推断具体连尾类型
+                inferred_type = self._infer_lianwei_type_from_content(content)
+                
+                tails = self.data_analyzer.extract_tails_from_content(content)
+                
+                # 根据推断的类型使用相应的阈值，如果没有推断出类型则使用通用阈值
+                if inferred_type and inferred_type in lianwei_config:
+                    threshold = lianwei_config[inferred_type]['threshold']
+                    display_type = inferred_type
+                else:
+                    threshold = 6  # 通用阈值
+                    display_type = '连尾'
+                
+                if len(tails) >= threshold:
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': f"{display_type}（{len(tails)}尾）",
+                        '违规类型': f'{display_type}多尾',
+                        '尾数数量': len(tails),
+                        '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
+                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{display_type}多尾')
+                    }
+                    self._add_unique_result(results, f'{display_type}多尾', record)
+    
+    def _infer_lianwei_type_from_content(self, content):
+        """从内容中推断连尾类型"""
+        content_str = str(content)
+        
+        # 从内容中查找具体类型
+        if '二连尾' in content_str:
+            return '二连尾'
+        elif '三连尾' in content_str:
+            return '三连尾'
+        elif '四连尾' in content_str:
+            return '四连尾'
+        elif '五连尾' in content_str:
+            return '五连尾'
+        
+        return None
     
     def _analyze_lhc_zhengte_detailed(self, account, lottery, period, group, results):
         """六合彩正码特详细检测"""
@@ -4031,19 +4127,14 @@ class ResultProcessor:
                 '三连肖多肖': '三连肖多肖', 
                 '四连肖多肖': '四连肖多肖',
                 '五连肖多肖': '五连肖多肖',
-                '二连肖生肖偏多': '二连肖生肖偏多',
-                '三连肖生肖偏多': '三连肖生肖偏多',
-                '四连肖生肖偏多': '四连肖生肖偏多', 
-                '五连肖生肖偏多': '五连肖生肖偏多',                
+                '连肖多肖': '连肖多肖',  # 保留通用类型作为后备
+                
                 # 连尾相关 - 具体类型
                 '二连尾多尾': '二连尾多尾',
                 '三连尾多尾': '三连尾多尾',
                 '四连尾多尾': '四连尾多尾',
                 '五连尾多尾': '五连尾多尾',
-                '二连尾尾数偏多': '二连尾尾数偏多',
-                '三连尾尾数偏多': '三连尾尾数偏多',
-                '四连尾尾数偏多': '四连尾尾数偏多',
-                '五连尾尾数偏多': '五连尾尾数偏多',
+                '连尾多尾': '连尾多尾',  # 保留通用类型作为后备
                 # 波色相关行为
                 '色波全包': '色波全包',                   # 传统色波全包
                 '七色波多色': '七色波多色',
