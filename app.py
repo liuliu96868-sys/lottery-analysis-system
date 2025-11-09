@@ -1134,7 +1134,7 @@ class PlayCategoryNormalizer:
         self.category_mapping = self._create_category_mapping()
     
     def _create_category_mapping(self):
-        """创建玩法分类映射的完整映射 - 尾数独立映射"""
+        """创建玩法分类映射的完整映射"""
         mapping = {
             # 快三玩法
             '和值': '和值',
@@ -1190,6 +1190,30 @@ class PlayCategoryNormalizer:
             '连尾': '连尾',
             '龙虎': '龙虎',
             '五行': '五行',
+
+            # 连肖玩法更精确的映射
+            '二连肖': '二连肖',
+            '三连肖': '三连肖', 
+            '四连肖': '四连肖',
+            '五连肖': '五连肖',
+            '二连肖(中)': '二连肖',
+            '三连肖(中)': '三连肖',
+            '四连肖(中)': '四连肖',
+            '五连肖(中)': '五连肖',
+            '连肖连尾_二连肖': '二连肖',
+            '连肖连尾_三连肖': '三连肖',
+            '连肖连尾_四连肖': '四连肖',
+            '连肖连尾_五连肖': '五连肖',
+            
+            # 连尾玩法更精确的映射
+            '二连尾': '二连尾',
+            '三连尾': '三连尾',
+            '四连尾': '四连尾', 
+            '五连尾': '五连尾',
+            '连肖连尾_二连尾': '二连尾',
+            '连肖连尾_三连尾': '三连尾',
+            '连肖连尾_四连尾': '四连尾',
+            '连肖连尾_五连尾': '五连尾',
 
             # 波色相关玩法
             '色波': '色波',
@@ -2438,7 +2462,7 @@ class AnalysisEngine:
 
     # =============== 六合彩分析方法 ===============
     def analyze_lhc_patterns(self, df):
-        """分析六合彩投注模式"""
+        """分析六合彩投注模式 - 使用详细分类检测"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
@@ -2453,6 +2477,13 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
+            # 使用新的详细连肖检测
+            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
+            
+            # 使用新的详细连尾检测  
+            self._analyze_lhc_lianwei(account, lottery, period, group, results)
+            
+            # 其他检测方法保持不变
             self._analyze_lhc_tema(account, lottery, period, group, results)
             self._analyze_lhc_two_sides(account, lottery, period, group, results)
             self._analyze_lhc_zhengma(account, lottery, period, group, results)
@@ -2463,11 +2494,8 @@ class AnalysisEngine:
             self._analyze_lhc_yixiao(account, lottery, period, group, results)
             self._analyze_lhc_wave(account, lottery, period, group, results)
             self._analyze_lhc_five_elements(account, lottery, period, group, results)
-            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
-            self._analyze_lhc_lianwei(account, lottery, period, group, results)
             self._analyze_lhc_zhengte_detailed(account, lottery, period, group, results)
-            self._analyze_lhc_lianxiao_lianwei_detailed(account, lottery, period, group, results)
-            self._analyze_lhc_banbo(account, lottery, period, group, results)  # 新增半波检测调用
+            self._analyze_lhc_banbo(account, lottery, period, group, results)
         
         return results
     
@@ -2950,48 +2978,101 @@ class AnalysisEngine:
             self._add_unique_result(results, '五行多组', record)
     
     def _analyze_lhc_lianxiao(self, account, lottery, period, group, results):
-        lianxiao_categories = ['连肖', '连肖连尾_二连肖', '连肖连尾_三连肖', '连肖连尾_四连肖', '连肖连尾_五连肖']
+        """分析六合彩连肖玩法 - 增强版本，区分具体连肖类型"""
+        # 定义连肖类型及其对应的合理生肖数量阈值
+        lianxiao_config = {
+            '二连肖': {'max_reasonable': 4, 'threshold': 6},  # 二连肖合理2-4个，超过6个为异常
+            '三连肖': {'max_reasonable': 5, 'threshold': 7},  # 三连肖合理3-5个，超过7个为异常  
+            '四连肖': {'max_reasonable': 6, 'threshold': 8},  # 四连肖合理4-6个，超过8个为异常
+            '五连肖': {'max_reasonable': 7, 'threshold': 9},  # 五连肖合理5-7个，超过9个为异常
+        }
         
-        for category in lianxiao_categories:
-            lianxiao_group = group[group['玩法分类'] == category]
+        for lianxiao_type, config in lianxiao_config.items():
+            lianxiao_group = group[group['玩法分类'] == lianxiao_type]
             
             for _, row in lianxiao_group.iterrows():
                 content = str(row['内容'])
-                zodiacs = self.data_analyzer.extract_zodiacs_from_content(content)
+                category = str(row['玩法分类'])
                 
-                if len(zodiacs) >= THRESHOLD_CONFIG['LHC']['lianxiao_threshold']:
+                # 解析玩法-投注内容格式
+                if '-' in content:
+                    parts = content.split('-', 1)
+                    bet_content = parts[1].strip()
+                else:
+                    bet_content = content
+                    
+                zodiacs = self.data_analyzer.extract_zodiacs_from_content(bet_content)
+                
+                # 使用针对具体连肖类型的阈值
+                if len(zodiacs) >= config['threshold']:
                     record = {
                         '会员账号': account,
                         '彩种': lottery,
                         '期号': period,
-                        '玩法分类': category,
+                        '玩法分类': f"{lianxiao_type}（{len(zodiacs)}生肖）",  # 明确显示连肖类型和生肖数量
+                        '违规类型': f'{lianxiao_type}多肖',
                         '生肖数量': len(zodiacs),
                         '投注内容': ', '.join(sorted(zodiacs)),
-                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, '连肖多肖')
+                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{lianxiao_type}多肖')
                     }
-                    self._add_unique_result(results, '连肖多肖', record)
+                    self._add_unique_result(results, f'{lianxiao_type}多肖', record)
+                # 同时检测是否超过合理范围但未达到异常阈值
+                elif len(zodiacs) > config['max_reasonable']:
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': f"{lianxiao_type}（{len(zodiacs)}生肖）",
+                        '违规类型': f'{lianxiao_type}生肖偏多',
+                        '生肖数量': len(zodiacs),
+                        '投注内容': ', '.join(sorted(zodiacs)),
+                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{lianxiao_type}生肖偏多')
+                    }
+                    self._add_unique_result(results, f'{lianxiao_type}生肖偏多', record)
     
     def _analyze_lhc_lianwei(self, account, lottery, period, group, results):
-        lianwei_categories = ['连尾', '连肖连尾_二连尾', '连肖连尾_三连尾', '连肖连尾_四连尾', '连肖连尾_五连尾']
+        """分析六合彩连尾玩法 - 增强版本，区分具体连尾类型"""
+        # 定义连尾类型及其对应的合理尾数数量阈值
+        lianwei_config = {
+            '二连尾': {'max_reasonable': 4, 'threshold': 6},  # 二连尾合理2-4个，超过6个为异常
+            '三连尾': {'max_reasonable': 5, 'threshold': 7},  # 三连尾合理3-5个，超过7个为异常
+            '四连尾': {'max_reasonable': 6, 'threshold': 8},  # 四连尾合理4-6个，超过8个为异常  
+            '五连尾': {'max_reasonable': 7, 'threshold': 9},  # 五连尾合理5-7个，超过9个为异常
+        }
         
-        for category in lianwei_categories:
-            lianwei_group = group[group['玩法分类'] == category]
+        for lianwei_type, config in lianwei_config.items():
+            lianwei_group = group[group['玩法分类'] == lianwei_type]
             
             for _, row in lianwei_group.iterrows():
                 content = str(row['内容'])
                 tails = self.data_analyzer.extract_tails_from_content(content)
                 
-                if len(tails) >= THRESHOLD_CONFIG['LHC']['lianwei_threshold']:
+                # 使用针对具体连尾类型的阈值
+                if len(tails) >= config['threshold']:
                     record = {
                         '会员账号': account,
                         '彩种': lottery,
                         '期号': period,
-                        '玩法分类': category,
+                        '玩法分类': f"{lianwei_type}（{len(tails)}尾）",  # 明确显示连尾类型和尾数数量
+                        '违规类型': f'{lianwei_type}多尾',
                         '尾数数量': len(tails),
                         '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
-                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, '连尾多尾')
+                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{lianwei_type}多尾')
                     }
-                    self._add_unique_result(results, '连尾多尾', record)
+                    self._add_unique_result(results, f'{lianwei_type}多尾', record)
+                # 同时检测是否超过合理范围但未达到异常阈值
+                elif len(tails) > config['max_reasonable']:
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': f"{lianwei_type}（{len(tails)}尾）",
+                        '违规类型': f'{lianwei_type}尾数偏多', 
+                        '尾数数量': len(tails),
+                        '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
+                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{lianwei_type}尾数偏多')
+                    }
+                    self._add_unique_result(results, f'{lianwei_type}尾数偏多', record)
     
     def _analyze_lhc_zhengte_detailed(self, account, lottery, period, group, results):
         """六合彩正码特详细检测"""
@@ -3788,6 +3869,53 @@ class AnalysisEngine:
             weight += 35
         
         return weight
+
+    def _analyze_detailed_category_patterns(self, account, lottery, period, group, results, 
+                                          category_config, extract_method, count_field, 
+                                          result_suffix, content_formatter=None):
+        """
+        通用详细分类检测方法
+        category_config: 分类配置字典 {分类名: {阈值配置}}
+        extract_method: 内容提取方法
+        count_field: 数量字段名
+        result_suffix: 结果后缀
+        content_formatter: 内容格式化函数
+        """
+        for category_name, config in category_config.items():
+            category_group = group[group['玩法分类'] == category_name]
+            
+            for _, row in category_group.iterrows():
+                content = str(row['内容'])
+                
+                # 解析玩法-投注内容格式
+                if '-' in content:
+                    parts = content.split('-', 1)
+                    bet_content = parts[1].strip()
+                else:
+                    bet_content = content
+                    
+                # 提取内容
+                items = extract_method(bet_content)
+                
+                # 检测阈值
+                if len(items) >= config['threshold']:
+                    # 格式化显示内容
+                    if content_formatter:
+                        display_content = content_formatter(items)
+                    else:
+                        display_content = ', '.join(sorted([str(item) for item in items]))
+                    
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': f"{category_name}（{len(items)}{count_field}）",
+                        '违规类型': f'{category_name}{result_suffix}',
+                        count_field: len(items),
+                        '投注内容': display_content,
+                        '排序权重': self._calculate_sort_weight({count_field: len(items)}, f'{category_name}{result_suffix}')
+                    }
+                    self._add_unique_result(results, f'{category_name}{result_suffix}', record)
     
     def analyze_all_patterns(self, df):
         """综合分析所有模式"""
@@ -3882,6 +4010,24 @@ class ResultProcessor:
                 '区间多组': '区间多组',
                 '波色三组': '波色三组',
                 '色波三组': '色波三组',
+                # 连肖相关 - 具体类型
+                '二连肖多肖': '二连肖多肖',
+                '三连肖多肖': '三连肖多肖', 
+                '四连肖多肖': '四连肖多肖',
+                '五连肖多肖': '五连肖多肖',
+                '二连肖生肖偏多': '二连肖生肖偏多',
+                '三连肖生肖偏多': '三连肖生肖偏多',
+                '四连肖生肖偏多': '四连肖生肖偏多', 
+                '五连肖生肖偏多': '五连肖生肖偏多',                
+                # 连尾相关 - 具体类型
+                '二连尾多尾': '二连尾多尾',
+                '三连尾多尾': '三连尾多尾',
+                '四连尾多尾': '四连尾多尾',
+                '五连尾多尾': '五连尾多尾',
+                '二连尾尾数偏多': '二连尾尾数偏多',
+                '三连尾尾数偏多': '三连尾尾数偏多',
+                '四连尾尾数偏多': '四连尾尾数偏多',
+                '五连尾尾数偏多': '五连尾尾数偏多',
                 # 波色相关行为
                 '色波全包': '色波全包',                   # 传统色波全包
                 '七色波多色': '七色波多色',
