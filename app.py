@@ -2782,21 +2782,43 @@ class AnalysisEngine:
                     self._add_unique_result(results, '正码1-6矛盾', record)
     
     def _normalize_zhengma_position(self, position):
-        """标准化正码位置名称"""
+        """标准化正码位置名称 - 修复版本"""
         position_mapping = {
-            '正码一': '正码1', '正1': '正码1', '正码1': '正码1',
-            '正码二': '正码2', '正2': '正码2', '正码2': '正码2', 
-            '正码三': '正码3', '正3': '正码3', '正码3': '正码3',
-            '正码四': '正码4', '正4': '正码4', '正码4': '正码4',
-            '正码五': '正码5', '正5': '正码5', '正码5': '正码5',
-            '正码六': '正码6', '正6': '正码6', '正码6': '正码6',
-            '正码一特': '正码1', '正码二特': '正码2', '正码三特': '正码3',
-            '正码四特': '正码4', '正码五特': '正码5', '正码六特': '正码6',
-            '未知位置': '正码1'  # 默认映射
+            # 中文标准格式
+            '正码一': '正码一', '正1': '正码一', '正码1': '正码一',
+            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', 
+            '正码三': '正码三', '正3': '正码三', '正码3': '正码三',
+            '正码四': '正码四', '正4': '正码四', '正码4': '正码四',
+            '正码五': '正码五', '正5': '正码五', '正码5': '正码五',
+            '正码六': '正码六', '正6': '正码六', '正码6': '正码六',
+            # 处理可能的数字格式
+            '1': '正码一', '2': '正码二', '3': '正码三',
+            '4': '正码四', '5': '正码五', '6': '正码六',
+            # 默认映射
+            '未知位置': '正码一'
         }
         
         position = position.strip()
-        return position_mapping.get(position, position)
+        
+        # 直接映射
+        if position in position_mapping:
+            return position_mapping[position]
+        
+        # 模糊匹配
+        for key, value in position_mapping.items():
+            if key in position:
+                return value
+        
+        # 如果包含数字，尝试提取数字并映射
+        import re
+        digit_match = re.search(r'\d', position)
+        if digit_match:
+            digit = digit_match.group()
+            if digit in position_mapping:
+                return position_mapping[digit]
+        
+        # 返回原位置，但确保至少是中文格式
+        return position
     
     def _analyze_lhc_zhengte(self, account, lottery, period, group, results):
         zhengte_categories = ['正特', '正1特', '正2特', '正3特', '正4特', '正5特', '正6特']
@@ -3405,7 +3427,7 @@ class AnalysisEngine:
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
             for position, bets in bets_by_position.items():
-                # 标准化位置名称
+                # 标准化位置名称 - 确保使用修复后的方法
                 normalized_position = self._normalize_zhengma_position(position)
                 
                 # 检查每个投注项的波色
@@ -3422,7 +3444,11 @@ class AnalysisEngine:
             detailed_content_parts = []
             for wave in sorted(traditional_waves):
                 positions = sorted(list(wave_positions[wave]))
-                detailed_content_parts.append(f"{wave}({','.join(positions)})")
+                # 确保位置名称是中文格式
+                chinese_positions = []
+                for pos in positions:
+                    chinese_positions.append(pos)
+                detailed_content_parts.append(f"{wave}({','.join(chinese_positions)})")
             
             detailed_content = " | ".join(detailed_content_parts)
             
