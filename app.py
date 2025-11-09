@@ -542,7 +542,6 @@ class ContentParser:
         # 原有的解析逻辑
         return ContentParser.parse_positional_bets(content, pk10_positions)
     
-    # 在 ContentParser 类中找到这个方法：
     @staticmethod
     def parse_lhc_zhengma_content(content):
         """
@@ -2526,8 +2525,8 @@ class AnalysisEngine:
             # 使用新的详细连尾检测  
             self._analyze_lhc_lianwei(account, lottery, period, group, results)
             
-            # === 新增：正码波色详细检测 ===
-            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
+            # === 新增：正码波色全包检测 ===
+            self._analyze_lhc_zhengma_wave_full_coverage(account, lottery, period, group, results)
             # === 新增结束 ===
             
             # 其他检测方法保持不变
@@ -3385,8 +3384,8 @@ class AnalysisEngine:
             }
             self._add_unique_result(results, '半波单双全包', record)
 
-    def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 精确版本"""
+    def _analyze_lhc_zhengma_wave_full_coverage(self, account, lottery, period, group, results):
+        """分析六合彩正码中的波色全包投注 - 只检测全包情况"""
         # 正码相关的玩法分类
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
@@ -3395,8 +3394,8 @@ class AnalysisEngine:
         if zhengma_group.empty:
             return
         
-        # 收集每个位置的波色投注
-        position_waves = defaultdict(set)
+        # 收集所有波色投注
+        all_waves = set()
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
@@ -3406,19 +3405,11 @@ class AnalysisEngine:
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
             for position, bets in bets_by_position.items():
-                # 标准化位置名称
-                normalized_position = self._normalize_zhengma_position(position)
-                
                 # 检查每个投注项的波色
                 for bet in bets:
                     # 使用增强的波色提取方法
                     waves = self._extract_wave_from_zhengma_bet(bet)
-                    position_waves[normalized_position].update(waves)
-        
-        # 检查波色全包情况
-        all_waves = set()
-        for position, waves in position_waves.items():
-            all_waves.update(waves)
+                    all_waves.update(waves)
         
         # 如果同时投注了红波、蓝波、绿波，则视为波色全包
         traditional_waves = {'红波', '蓝波', '绿波'}
@@ -3435,22 +3426,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '正码波色全包')
             }
             self._add_unique_result(results, '正码波色全包', record)
-        
-        # 检查单个位置的波色矛盾
-        for position, waves in position_waves.items():
-            if len(waves) >= 2:  # 同一位置投注2个或以上波色
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': f'{position}波色',
-                    '违规类型': f'{position}波色多投',
-                    '投注波色数': len(waves),
-                    '投注波色': sorted(list(waves)),
-                    '投注内容': f"{position}-{', '.join(sorted(waves))}",
-                    '排序权重': self._calculate_sort_weight({'投注波色数': len(waves)}, f'{position}波色多投')
-                }
-                self._add_unique_result(results, f'{position}波色多投', record)
     
     def _extract_wave_from_zhengma_bet(self, bet_content):
         """从正码投注内容中精确提取波色"""
@@ -4232,13 +4207,7 @@ class ResultProcessor:
                 '五连肖多肖': '五连肖多肖',
                 '连肖多肖': '连肖多肖',  # 保留通用类型作为后备
                 # 正码波色相关
-                '正码波色全包': '正码波色全包',
-                '正码一波色多投': '正码一波色多投',
-                '正码二波色多投': '正码二波色多投',
-                '正码三波色多投': '正码三波色多投',
-                '正码四波色多投': '正码四波色多投',
-                '正码五波色多投': '正码五波色多投',
-                '正码六波色多投': '正码六波色多投',               
+                '正码波色全包': '正码波色全包',           
                 # 连尾相关 - 具体类型
                 '二连尾多尾': '二连尾多尾',
                 '三连尾多尾': '三连尾多尾',
