@@ -3394,8 +3394,8 @@ class AnalysisEngine:
         if zhengma_group.empty:
             return
         
-        # 收集所有波色投注
-        all_waves = set()
+        # 收集每个波色对应的位置信息
+        wave_positions = defaultdict(set)
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
@@ -3405,15 +3405,27 @@ class AnalysisEngine:
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
             for position, bets in bets_by_position.items():
+                # 标准化位置名称
+                normalized_position = self._normalize_zhengma_position(position)
+                
                 # 检查每个投注项的波色
                 for bet in bets:
                     # 使用增强的波色提取方法
                     waves = self._extract_wave_from_zhengma_bet(bet)
-                    all_waves.update(waves)
+                    for wave in waves:
+                        wave_positions[wave].add(normalized_position)
         
         # 如果同时投注了红波、蓝波、绿波，则视为波色全包
         traditional_waves = {'红波', '蓝波', '绿波'}
-        if traditional_waves.issubset(all_waves):
+        if traditional_waves.issubset(wave_positions.keys()):
+            # 构建详细的投注内容，显示每个波色对应的位置
+            detailed_content_parts = []
+            for wave in sorted(traditional_waves):
+                positions = sorted(list(wave_positions[wave]))
+                detailed_content_parts.append(f"{wave}({','.join(positions)})")
+            
+            detailed_content = " | ".join(detailed_content_parts)
+            
             record = {
                 '会员账号': account,
                 '彩种': lottery,
@@ -3422,7 +3434,7 @@ class AnalysisEngine:
                 '违规类型': '正码波色全包',
                 '投注波色数': len(traditional_waves),
                 '投注波色': sorted(list(traditional_waves)),
-                '投注内容': f"正码波色全包: {', '.join(sorted(traditional_waves))}",
+                '投注内容': f"正码波色全包: {detailed_content}",
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '正码波色全包')
             }
             self._add_unique_result(results, '正码波色全包', record)
