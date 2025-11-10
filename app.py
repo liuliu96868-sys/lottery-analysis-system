@@ -2818,59 +2818,121 @@ class AnalysisEngine:
         
         # 返回原位置，但确保至少是中文格式
         return position
+
+    def _extract_specific_zhengte_position(self, content, category):
+        """精确提取正特的具体位置"""
+        content_str = str(content)
+        category_str = str(category)
+        
+        # 位置映射
+        position_mapping = {
+            '正1特': ['正1特', '正一特', '正码一特', '正码1特'],
+            '正2特': ['正2特', '正二特', '正码二特', '正码2特'],
+            '正3特': ['正3特', '正三特', '正码三特', '正码3特'],
+            '正4特': ['正4特', '正四特', '正码四特', '正码4特'],
+            '正5特': ['正5特', '正五特', '正码五特', '正码5特'],
+            '正6特': ['正6特', '正六特', '正码六特', '正码6特']
+        }
+        
+        # 首先检查分类本身是否已经是具体位置
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in category_str:
+                    return position
+        
+        # 如果分类是"正特"，从内容中提取具体位置
+        if category_str == '正特':
+            for position, keywords in position_mapping.items():
+                for keyword in keywords:
+                    if keyword in content_str:
+                        return position
+            
+            # 如果内容中包含数字，尝试推断位置
+            if '正码一' in content_str or '正1' in content_str:
+                return '正1特'
+            elif '正码二' in content_str or '正2' in content_str:
+                return '正2特'
+            elif '正码三' in content_str or '正3' in content_str:
+                return '正3特'
+            elif '正码四' in content_str or '正4' in content_str:
+                return '正4特'
+            elif '正码五' in content_str or '正5' in content_str:
+                return '正5特'
+            elif '正码六' in content_str or '正6' in content_str:
+                return '正6特'
+        
+        # 默认返回分类名称
+        return category_str
     
     def _analyze_lhc_zhengte(self, account, lottery, period, group, results):
+        """分析六合彩正特玩法 - 改进版，精确识别具体位置"""
         zhengte_categories = ['正特', '正1特', '正2特', '正3特', '正4特', '正5特', '正6特']
+        
+        # 按具体位置分别统计
+        position_numbers = defaultdict(set)
+        position_bets = defaultdict(lambda: defaultdict(set))
         
         for category in zhengte_categories:
             category_group = group[group['玩法分类'] == category]
             
-            all_numbers = set()
-            all_bets = defaultdict(set)
-            
             for _, row in category_group.iterrows():
                 content = str(row['内容'])
+                category = str(row['玩法分类'])
+                
+                # 精确识别具体位置
+                specific_position = self._extract_specific_zhengte_position(content, category)
+                
                 clean_content = self.data_analyzer.parse_lhc_special_content(content)
                 
+                # 提取号码
                 numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
-                all_numbers.update(numbers)
+                position_numbers[specific_position].update(numbers)
                 
+                # 提取两面玩法内容
                 two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
                 for bet_type, bets in two_sides_analysis.items():
-                    all_bets[bet_type].update(bets)
-            
-            if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
+                    position_bets[specific_position][bet_type].update(bets)
+        
+        # 对每个具体位置分别进行检测
+        for position, numbers in position_numbers.items():
+            # 多号码检测
+            if len(numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': category,
-                    '号码数量': len(all_numbers),
-                    '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正特多码')
+                    '玩法分类': f'{position}多码',
+                    '位置': position,
+                    '号码数量': len(numbers),
+                    '投注内容': f"{position}: {', '.join([f'{num:02d}' for num in sorted(numbers)])}",
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, f'{position}多码')
                 }
-                self._add_unique_result(results, '正特多码', record)
+                self._add_unique_result(results, f'{position}多码', record)
             
+            # 矛盾投注检测
+            bets_for_position = position_bets[position]
             conflicts = []
-            wave_set = all_bets.get('wave', set())
             
-            if '大' in all_bets.get('normal_size', set()) and '小' in all_bets.get('normal_size', set()):
+            if '大' in bets_for_position.get('normal_size', set()) and '小' in bets_for_position.get('normal_size', set()):
                 conflicts.append('大小矛盾')
-            if '单' in all_bets.get('parity', set()) and '双' in all_bets.get('parity', set()):
+            if '单' in bets_for_position.get('parity', set()) and '双' in bets_for_position.get('parity', set()):
                 conflicts.append('单双矛盾')
-            if len(wave_set) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
-                conflicts.append('波色多组投注')
+            if '尾大' in bets_for_position.get('tail_size', set()) and '尾小' in bets_for_position.get('tail_size', set()):
+                conflicts.append('尾大小矛盾')
+            if '合单' in bets_for_position.get('sum_parity', set()) and '合双' in bets_for_position.get('sum_parity', set()):
+                conflicts.append('合数单双矛盾')
             
             if conflicts:
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': category,
+                    '玩法分类': position,
+                    '位置': position,
                     '矛盾类型': '、'.join(conflicts),
-                    '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正特矛盾')
+                    '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, f'{position}矛盾')
                 }
-                self._add_unique_result(results, '正特矛盾', record)
+                self._add_unique_result(results, f'{position}矛盾', record)
     
     def _analyze_lhc_pingte(self, account, lottery, period, group, results):
         pingte_group = group[group['玩法分类'] == '平特']
@@ -4225,6 +4287,18 @@ class ResultProcessor:
                 '两面玩法矛盾': '两面玩法矛盾',
                 '正码1-6矛盾': '正码1-6矛盾',
                 '正特矛盾': '正特矛盾',
+                '正1特多码': '正1特多码',
+                '正2特多码': '正2特多码', 
+                '正3特多码': '正3特多码',
+                '正4特多码': '正4特多码',
+                '正5特多码': '正5特多码',
+                '正6特多码': '正6特多码',
+                '正1特矛盾': '正1特矛盾',
+                '正2特矛盾': '正2特矛盾',
+                '正3特矛盾': '正3特矛盾',
+                '正4特矛盾': '正4特矛盾',
+                '正5特矛盾': '正5特矛盾',
+                '正6特矛盾': '正6特矛盾',
                 '区间多组': '区间多组',
                 '波色三组': '波色三组',
                 '色波三组': '色波三组',
@@ -4661,6 +4735,19 @@ class Exporter:
             '两面玩法矛盾': (None, '投注内容'),
             '正码1-6矛盾': (None, '投注内容'),
             '正特矛盾': (None, '投注内容'),
+            # 正特具体位置
+            '正1特多码': ('号码数量', '投注内容'),
+            '正2特多码': ('号码数量', '投注内容'),
+            '正3特多码': ('号码数量', '投注内容'),
+            '正4特多码': ('号码数量', '投注内容'),
+            '正5特多码': ('号码数量', '投注内容'),
+            '正6特多码': ('号码数量', '投注内容'),
+            '正1特矛盾': (None, '投注内容'),
+            '正2特矛盾': (None, '投注内容'),
+            '正3特矛盾': (None, '投注内容'),
+            '正4特矛盾': (None, '投注内容'),
+            '正5特矛盾': (None, '投注内容'),
+            '正6特矛盾': (None, '投注内容'),
 
             # 半波相关
             '半波全包': (None, '投注内容'),
