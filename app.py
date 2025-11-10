@@ -1703,10 +1703,6 @@ class AnalysisEngine:
         if len(df_target) == 0:
             return results
         
-        # 使用进度条
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         total_groups = len(grouped)
         
