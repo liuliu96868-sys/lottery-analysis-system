@@ -4247,17 +4247,48 @@ def main():
                     with col3:
                         st.metric("彩种数量", df_clean['彩种'].nunique())
                     
-                    # ==================== 修复：统一玩法分类 ====================
                     play_normalizer = PlayCategoryNormalizer()
                     if '玩法' in df_clean.columns:
                         df_clean['玩法分类'] = df_clean['玩法'].apply(play_normalizer.normalize_category)
-                    # ==================== 修复结束 ====================
                     
                     # 分析投注模式 - 使用新的统一分析器
                     all_results = analyzer.analyze_all_patterns(df_clean)
+                    # 使用进度条
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    all_results = {}
+                    # 明确定义 lottery_types 变量 - 添加3D系列
+                    lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
+                    
+                    for i, lottery_type in enumerate(lottery_types):
+                        status_text.text(f"正在分析 {lottery_type}...")
+                        
+                        if lottery_type == 'PK拾赛车':
+                            all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
+                        elif lottery_type == '时时彩':
+                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
+                        elif lottery_type == '六合彩':
+                            all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
+                        elif lottery_type == '快三':
+                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
+                        elif lottery_type == '三色彩':
+                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
+                        # 添加3D系列分析调用
+                        elif lottery_type == '3D系列':
+                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
+                        
+                        progress_bar.progress((i + 1) / len(lottery_types))
+                    
+                    status_text.text("分析完成！")
+                    
+                    # 统计结果
+                    total_findings = 0
+                    for lottery_type, results in all_results.items():
+                        type_count = sum(len(records) for records in results.values())
+                        total_findings += type_count
                     
                     with col4:
-                        total_findings = sum(len(records) for lottery_results in all_results.values() for records in lottery_results.values())
                         st.metric("可疑记录数", total_findings)
                     
                     with st.expander("📊 数据预览", expanded=False):
