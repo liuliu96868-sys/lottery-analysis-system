@@ -545,7 +545,7 @@ class ContentParser:
     @staticmethod
     def parse_lhc_zhengma_content(content):
         """
-        解析六合彩正码投注内容 - 增强版本
+        解析六合彩正码投注内容 - 精确版本
         格式：位置1-投注项1,投注项2,位置2-投注项1,投注项2,...
         """
         content_str = str(content).strip()
@@ -560,22 +560,25 @@ class ContentParser:
         current_position = None
         
         for part in parts:
-            # 检查是否包含位置关键词
-            is_position = False
+            # 检查是否包含位置关键词 - 精确匹配
             position_keywords = ['正码一', '正码二', '正码三', '正码四', '正码五', '正码六',
                                '正1', '正2', '正3', '正4', '正5', '正6',
                                '正码1', '正码2', '正码3', '正码4', '正码5', '正码6']
             
+            is_position = False
+            matched_position = None
+            
             for keyword in position_keywords:
-                if keyword in part and '-' in part:
+                if part.startswith(keyword + '-') or part == keyword:
                     is_position = True
+                    matched_position = keyword
                     break
             
-            # 如果包含位置信息或者是明确的"位置-内容"格式
-            if '-' in part and is_position:
+            # 如果包含位置信息
+            if is_position and '-' in part:
                 try:
                     position_part, bet_value = part.split('-', 1)
-                    current_position = position_part.strip()
+                    current_position = self._normalize_zhengma_position(position_part)
                     bets_by_position[current_position].append(bet_value.strip())
                 except ValueError:
                     # 分割失败，可能不是有效的位置格式
@@ -1005,7 +1008,7 @@ class DataAnalyzer:
         return '冠军'
     
     def _normalize_pk10_position(self, position):
-        """增强的PK10位置标准化"""
+        """增强的PK10位置标准化 - 精确版本"""
         position_mapping = {
             '冠军': '冠军', '第1名': '冠军', '第一名': '冠军', '1': '冠军', '1st': '冠军',
             '前一': '冠军',
@@ -1026,9 +1029,11 @@ class DataAnalyzer:
         if position in position_mapping:
             return position_mapping[position]
         
-        # 模糊匹配 - 增强逻辑
+        # 精确匹配 - 增强逻辑
         for key, value in position_mapping.items():
-            if key in position:
+            if key == position:  # 精确匹配
+                return value
+            elif key in position and len(key) > 1:  # 关键词匹配，但关键词长度要大于1
                 return value
         
         # 处理带冒号的格式（如"第九名:"）
@@ -1037,15 +1042,11 @@ class DataAnalyzer:
             if clean_position in position_mapping:
                 return position_mapping[clean_position]
             for key, value in position_mapping.items():
-                if key in clean_position:
+                if key == clean_position:
                     return value
         
-        # 如果还是无法识别，尝试更宽松的匹配
-        position_lower = position.lower()
-        if '九' in position_lower or '9' in position_lower:
-            return '第九名'
-        
-        return position  # 返回原位置而不是未知
+        # 如果还是无法识别，返回原位置
+        return position
 
     def parse_3d_content(self, content):
         """解析3D投注内容 - 增强竖线格式支持"""
@@ -2484,20 +2485,21 @@ class AnalysisEngine:
                 self._add_unique_result(results, '定位胆多码', record)
     
     def _infer_ssc_position_from_category(self, category):
-        """从时时彩玩法分类推断位置"""
+        """从时时彩玩法分类精确推断位置"""
         category_str = str(category).strip()
         
         position_mapping = {
-            '第1球': ['第1球', '定位_万位', '万位'],
-            '第2球': ['第2球', '定位_千位', '千位'],
-            '第3球': ['第3球', '定位_百位', '百位'],
-            '第4球': ['第4球', '定位_十位', '十位'],
-            '第5球': ['第5球', '定位_个位', '个位']
+            '第1球': ['第1球', '定位_万位', '万位', '第一位', '第一球'],
+            '第2球': ['第2球', '定位_千位', '千位', '第二位', '第二球'],
+            '第3球': ['第3球', '定位_百位', '百位', '第三位', '第三球'],
+            '第4球': ['第4球', '定位_十位', '十位', '第四位', '第四球'],
+            '第5球': ['第5球', '定位_个位', '个位', '第五位', '第五球']
         }
         
         for position, keywords in position_mapping.items():
             for keyword in keywords:
-                if keyword in category_str:
+                # 精确匹配，避免部分匹配
+                if keyword == category_str or f"{keyword}(" in category_str or f"{keyword}）" in category_str:
                     return position
         
         return None
@@ -2781,7 +2783,7 @@ class AnalysisEngine:
                     self._add_unique_result(results, '正码1-6矛盾', record)
     
     def _normalize_zhengma_position(self, position):
-        """标准化正码位置名称 - 修复版本"""
+        """标准化正码位置名称 - 精确版本"""
         position_mapping = {
             # 中文标准格式
             '正码一': '正码一', '正1': '正码一', '正码1': '正码一',
@@ -2793,8 +2795,6 @@ class AnalysisEngine:
             # 处理可能的数字格式
             '1': '正码一', '2': '正码二', '3': '正码三',
             '4': '正码四', '5': '正码五', '6': '正码六',
-            # 默认映射
-            '未知位置': '正码一'
         }
         
         position = position.strip()
@@ -2816,7 +2816,7 @@ class AnalysisEngine:
             if digit in position_mapping:
                 return position_mapping[digit]
         
-        # 返回原位置，但确保至少是中文格式
+        # 返回原位置，不进行默认映射
         return position
     
     def _analyze_lhc_zhengte(self, account, lottery, period, group, results):
@@ -3441,6 +3441,14 @@ class AnalysisEngine:
         for position, waves in position_waves.items():
             # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
             if traditional_waves.issubset(waves):
+                # 获取该位置的具体投注内容
+                position_bets = []
+                for _, row in zhengma_group.iterrows():
+                    content = str(row['内容'])
+                    bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
+                    if position in bets_by_position:
+                        position_bets.extend(bets_by_position[position])
+                
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -3449,7 +3457,7 @@ class AnalysisEngine:
                     '违规类型': f'{position}波色全包',
                     '投注波色数': len(traditional_waves),
                     '投注波色': sorted(list(traditional_waves)),
-                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                    '投注内容': f"{position}-{', '.join(position_bets)}",
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
