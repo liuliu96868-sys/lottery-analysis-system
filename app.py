@@ -1703,17 +1703,10 @@ class AnalysisEngine:
         if len(df_target) == 0:
             return results
         
-        # 使用进度条
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         total_groups = len(grouped)
         
         for i, ((account, lottery, period), group) in enumerate(grouped):
-            if i % 100 == 0:  # 每100组更新一次进度
-                progress_bar.progress(min(i / total_groups, 1.0))
-                status_text.text(f"分析PK10中... {i}/{total_groups}")
             
             self._analyze_pk10_two_sides(account, lottery, period, group, results)
             self._analyze_pk10_gyh(account, lottery, period, group, results)
@@ -1722,9 +1715,6 @@ class AnalysisEngine:
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
             self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
             self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
-        
-        progress_bar.progress(1.0)
-        status_text.text("PK10分析完成!")
         
         return results
     
