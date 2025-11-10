@@ -18,6 +18,133 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==================== 基础分析器架构 ====================
+from abc import ABC, abstractmethod
+from collections import defaultdict
+import pandas as pd
+import streamlit as st
+
+class BaseAnalyzer(ABC):
+    """基础分析器抽象类"""
+    
+    def __init__(self):
+        self.content_parser = ContentParser()
+        self.normalizer = PlayCategoryNormalizer()
+        self.seen_records = set()
+    
+    @abstractmethod
+    def analyze(self, df):
+        """分析入口方法 - 子类必须实现"""
+        pass
+    
+    @abstractmethod
+    def get_supported_lottery_types(self):
+        """返回支持的彩种类型"""
+        pass
+    
+    def _get_record_hash(self, record):
+        """生成记录的唯一哈希值"""
+        key_parts = [
+            record['会员账号'],
+            record['彩种'], 
+            record['期号'],
+            record.get('玩法分类', ''),
+            record.get('违规类型', ''),
+            record.get('位置', ''),
+            str(record.get('号码数量', 0)),
+            record.get('矛盾类型', '')
+        ]
+        return hashlib.md5('|'.join(key_parts).encode()).hexdigest()
+    
+    def _add_unique_result(self, results, result_type, record):
+        """添加唯一的结果记录"""
+        record_hash = self._get_record_hash(record)
+        
+        if record_hash not in self.seen_records:
+            self.seen_records.add(record_hash)
+            results[result_type].append(record)
+            return True
+        return False
+    
+    def _calculate_sort_weight(self, record, result_type):
+        """计算排序权重"""
+        weight = 0
+        
+        # 基于号码数量
+        if record.get('号码数量', 0) > 0:
+            weight += record['号码数量'] * 10
+        
+        # 基于矛盾类型复杂度
+        if record.get('矛盾类型'):
+            conflict_count = len(record['矛盾类型'].split('、'))
+            weight += conflict_count * 15
+        
+        # 基于其他数量字段
+        for field in ['生肖数量', '尾数数量', '投注区间数', '投注波色数', '投注五行数']:
+            if record.get(field, 0) > 0:
+                weight += record[field] * 8
+        
+        # 基于矛盾值
+        if record.get('矛盾值', 0) > 0:
+            weight += record['矛盾值'] * 5
+        
+        # 基于检测类型重要性
+        if '多号码' in result_type:
+            weight += 25
+        elif '矛盾' in result_type:
+            weight += 20
+        elif '全包' in result_type:
+            weight += 30
+        elif '三组' in result_type:
+            weight += 35
+        
+        return weight
+
+class PrecisionThresholdManager:
+    """精确阈值管理器"""
+    
+    def get_threshold(self, lottery_type, play_category, detection_type):
+        """获取精确阈值"""
+        base_config = THRESHOLD_CONFIG.get(lottery_type, {})
+        
+        # 玩法特定的阈值配置
+        play_specific_config = {
+            'LHC': {
+                '特码': {'multi_number': 31},
+                '正码': {'multi_number': 25},
+                '正1特': {'multi_number': 20},
+                '正2特': {'multi_number': 20},
+                '正3特': {'multi_number': 20},
+                '正4特': {'multi_number': 20},
+                '正5特': {'multi_number': 20},
+                '正6特': {'multi_number': 20},
+                '尾数': {'multi_tail': 7},
+                '特尾': {'multi_tail': 5},
+                '全尾': {'multi_tail': 5},
+                '平特': {'zodiac_play': 7},
+                '特肖': {'zodiac_play': 7},
+                '一肖': {'zodiac_play': 7}
+            },
+            'K3': {
+                '和值': {'hezhi_multi_number': 11},
+                '独胆': {'dudan_multi_number': 5}
+            },
+            'PK10': {
+                '冠军': {'multi_number': 8},
+                '亚军': {'multi_number': 8},
+                '第三名': {'multi_number': 8},
+                '冠亚和': {'gyh_multi_number': 12}
+            }
+        }
+        
+        # 优先使用玩法特定配置
+        play_config = play_specific_config.get(lottery_type, {}).get(play_category, {})
+        if detection_type in play_config:
+            return play_config[detection_type]
+        
+        # 回退到基础配置
+        return base_config.get(detection_type, 5)  # 默认阈值
+
 # ==================== 配置常量 ====================
 LOTTERY_CONFIGS = {
     'PK10': {
@@ -125,6 +252,52 @@ THRESHOLD_CONFIG = {
         'wave_conflict': 2
     }
 }
+
+# ==================== 新增：精确阈值管理器 ====================
+class PrecisionThresholdManager:
+    """精确阈值管理器"""
+    
+    def get_threshold(self, lottery_type, play_category, detection_type):
+        """获取精确阈值"""
+        base_config = THRESHOLD_CONFIG.get(lottery_type, {})
+        
+        # 玩法特定的阈值配置
+        play_specific_config = {
+            'LHC': {
+                '特码': {'multi_number': 31},
+                '正码': {'multi_number': 25},
+                '正1特': {'multi_number': 20},
+                '正2特': {'multi_number': 20},
+                '正3特': {'multi_number': 20},
+                '正4特': {'multi_number': 20},
+                '正5特': {'multi_number': 20},
+                '正6特': {'multi_number': 20},
+                '尾数': {'multi_tail': 7},
+                '特尾': {'multi_tail': 5},
+                '全尾': {'multi_tail': 5},
+                '平特': {'zodiac_play': 7},
+                '特肖': {'zodiac_play': 7},
+                '一肖': {'zodiac_play': 7}
+            },
+            'K3': {
+                '和值': {'hezhi_multi_number': 11},
+                '独胆': {'dudan_multi_number': 5}
+            },
+            'PK10': {
+                '冠军': {'multi_number': 8},
+                '亚军': {'multi_number': 8},
+                '第三名': {'multi_number': 8},
+                '冠亚和': {'gyh_multi_number': 12}
+            }
+        }
+        
+        # 优先使用玩法特定配置
+        play_config = play_specific_config.get(lottery_type, {}).get(play_category, {})
+        if detection_type in play_config:
+            return play_config[detection_type]
+        
+        # 回退到基础配置
+        return base_config.get(detection_type, 5)  # 默认阈值
 
 # ==================== 日志设置 ====================
 def setup_logging():
@@ -1505,149 +1678,50 @@ class PlayCategoryNormalizer:
         
         return category_str
 
-# ==================== 分析引擎 ====================
-class AnalysisEngine:
+# ==================== 替换：统一分析器 ====================
+class UnifiedAnalyzer:
+    """统一分析器 - 处理所有彩种"""
+    
     def __init__(self):
-        self.data_analyzer = DataAnalyzer()
+        self.content_parser = ContentParser()
         self.normalizer = PlayCategoryNormalizer()
-        self.seen_records = set()  # 用于记录已检测的记录
-
-    def parse_play_content_enhanced(self, content, current_category, lottery_type):
-        """增强版内容解析 - 返回实际玩法分类和投注内容"""
-        content_str = str(content)
-        
-        # 根据彩种类型定义玩法关键字映射
-        play_keywords_mapping = {
-            'LHC': {
-                # 尾数玩法
-                '特尾': '特尾',
-                '全尾': '全尾',
-                '头尾数': '尾数_头尾数',
-                '尾数': '尾数',
-                # 正码特玩法
-                '正码一特': '正1特',
-                '正码二特': '正2特', 
-                '正码三特': '正3特',
-                '正码四特': '正4特',
-                '正码五特': '正5特',
-                '正码六特': '正6特',
-                # 连肖玩法
-                '二连肖': '连肖连尾_二连肖',
-                '三连肖': '连肖连尾_三连肖',
-                '四连肖': '连肖连尾_四连肖', 
-                '五连肖': '连肖连尾_五连肖',
-                # 连尾玩法
-                '二连尾': '连肖连尾_二连尾',
-                '三连尾': '连肖连尾_三连尾',
-                '四连尾': '连肖连尾_四连尾',
-                '五连尾': '连肖连尾_五连尾'
-            },
-            'PK10': {
-                # 位置信息
-                '冠军': '冠军',
-                '亚军': '亚军',
-                '第三名': '第三名',
-                '第四名': '第四名',
-                '第五名': '第五名',
-                '第六名': '第六名', 
-                '第七名': '第七名',
-                '第八名': '第八名',
-                '第九名': '第九名',
-                '第十名': '第十名',
-                '前一': '冠军'
-            },
-            'SSC': {
-                # 位置信息
-                '第1球': '第1球',
-                '第2球': '第2球',
-                '第3球': '第3球',
-                '第4球': '第4球', 
-                '第5球': '第5球',
-                '万位': '第1球',
-                '千位': '第2球',
-                '百位': '第3球',
-                '十位': '第4球',
-                '个位': '第5球'
-            },
-            '3D': {
-                # 位置信息
-                '百位': '百位',
-                '十位': '十位',
-                '个位': '个位'
-            }
-        }
-        
-        # 获取对应彩种的玩法映射
-        play_keywords = play_keywords_mapping.get(lottery_type, {})
-        
-        # 检查内容中是否包含玩法关键字
-        detected_play_method = None
-        for keyword, play_method in play_keywords.items():
-            if keyword in content_str:
-                detected_play_method = play_method
-                break
-        
-        # 提取投注内容
-        bet_content = content_str
-        if '-' in content_str:
-            parts = content_str.split('-', 1)
-            if len(parts) == 2:
-                bet_content = parts[1].strip()
-        
-        return detected_play_method, bet_content
-
-    def normalize_play_category_from_content(self, content, current_category, lottery_type):
-        """基于内容统一标准化玩法分类"""
-        detected_play_method, _ = self.parse_play_content_enhanced(content, current_category, lottery_type)
-        
-        if detected_play_method:
-            return detected_play_method
-        else:
-            return current_category
+        self.data_analyzer = DataAnalyzer()
+        self.threshold_manager = PrecisionThresholdManager()
+        self.seen_records = set()
     
-    def _get_record_hash(self, record):
-        """生成记录的唯一哈希值"""
-        key_parts = [
-            record['会员账号'],
-            record['彩种'], 
-            record['期号'],
-            record.get('玩法分类', ''),
-            record.get('违规类型', ''),
-            record.get('位置', ''),
-            str(record.get('号码数量', 0)),
-            record.get('矛盾类型', '')
-        ]
-        return hashlib.md5('|'.join(key_parts).encode()).hexdigest()
-    
-    def _add_unique_result(self, results, result_type, record):
-        """添加唯一的结果记录"""
-        record_hash = self._get_record_hash(record)
+    def analyze_all_patterns(self, df):
+        """统一分析入口"""
+        all_results = {}
         
-        if record_hash not in self.seen_records:
-            self.seen_records.add(record_hash)
-            results[result_type].append(record)
-            return True
-        return False
-    
-    def normalize_play_categories(self, df):
-        """统一玩法分类本"""
-        logger.info("正在统一玩法分类...")
+        # 重置缓存
+        self.seen_records = set()
         
-        if '玩法' in df.columns:
-            df['玩法分类'] = df['玩法'].apply(self.normalizer.normalize_category)
-                
-            with st.expander("🎯 玩法分类统计", expanded=False):
-                category_counts = df['玩法分类'].value_counts()
-                st.write("玩法分类分布:")
-                st.dataframe(category_counts.reset_index().rename(columns={'index': '玩法分类', '玩法分类': '数量'}))
-                    
-                if len(category_counts) > 15:
-                    st.info(f"还有{len(category_counts) - 15}个分类未显示")
+        # 使用进度条
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        return df
+        # 按彩种类型分别分析
+        lottery_types = ['LHC', 'K3', 'PK10', 'SSC', '3D', 'THREE_COLOR']
+        
+        for i, lottery_type in enumerate(lottery_types):
+            status_text.text(f"正在分析 {lottery_type}...")
+            
+            df_target = self._filter_by_lottery_type(df, lottery_type)
+            if len(df_target) > 0:
+                lottery_results = self._analyze_lottery_type(df_target, lottery_type)
+                all_results[lottery_type] = lottery_results
+            
+            progress_bar.progress((i + 1) / len(lottery_types))
+        
+        status_text.text("分析完成！")
+        return all_results
     
-    def identify_lottery_type(self, lottery_name):
-        """识别彩种类型"""
+    def _filter_by_lottery_type(self, df, lottery_type):
+        """过滤指定彩种类型的数据"""
+        return df[df['彩种'].apply(self._identify_lottery_type) == lottery_type]
+    
+    def _identify_lottery_type(self, lottery_name):
+        """识别彩种类型 - 复用原有逻辑"""
         lottery_str = str(lottery_name).strip()
         
         for lottery_type, config in LOTTERY_CONFIGS.items():
@@ -1657,7 +1731,6 @@ class AnalysisEngine:
         
         lottery_lower = lottery_str.lower()
         
-        # 更精确的彩种识别
         if any(word in lottery_lower for word in ['pk', '飞艇', '赛车', '幸运10', 'pk10', 'pk拾', '赛車']):
             return 'PK10'
         elif any(word in lottery_lower for word in ['快三', '快3', 'k3', 'k三']):
@@ -1668,75 +1741,987 @@ class AnalysisEngine:
             return 'SSC'
         elif any(word in lottery_lower for word in ['三色', '三色彩', '三色球']):
             return 'THREE_COLOR'
-        # 增强3D系列识别
         elif any(word in lottery_lower for word in ['排列三', '排列3', '福彩3d', '3d', '极速3d', '排列', 'p3', 'p三']):
             return '3D'
         
         return None
-
-    def normalize_tail_play_category(self, content, current_category):
-        """统一标准化尾数玩法分类"""
-        content_str = str(content)
-        
-        # 玩法关键字优先级（从具体到一般）
-        play_keywords = [
-            ('特尾', '特尾'),
-            ('全尾', '全尾'),
-            ('头尾数', '尾数_头尾数'),
-            ('尾数', '尾数')
-        ]
-        
-        for keyword, normalized_category in play_keywords:
-            if keyword in content_str:
-                return normalized_category
-        
-        # 如果没有匹配关键字，返回原始分类
-        return current_category
-
-    # =============== PK10分析方法 ===============
-    def analyze_pk10_patterns(self, df):
-        """分析PK拾/赛车系列投注模式"""
+    
+    def _analyze_lottery_type(self, df, lottery_type):
+        """分析指定彩种类型"""
         results = defaultdict(list)
         
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'PK10']
+        # 按账户期号分组分析
+        grouped = df.groupby(['会员账号', '彩种', '期号'])
         
-        if len(df_target) == 0:
-            return results
-        
-        # 使用进度条
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        total_groups = len(grouped)
-        
-        for i, ((account, lottery, period), group) in enumerate(grouped):
-            if i % 100 == 0:  # 每100组更新一次进度
-                progress_bar.progress(min(i / total_groups, 1.0))
-                status_text.text(f"分析PK10中... {i}/{total_groups}")
-            
-            self._analyze_pk10_two_sides(account, lottery, period, group, results)
-            self._analyze_pk10_gyh(account, lottery, period, group, results)
-            self._analyze_pk10_number_plays(account, lottery, period, group, results)
-            self._analyze_pk10_independent_plays(account, lottery, period, group, results)
-            self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
-            self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
-            self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
-        
-        progress_bar.progress(1.0)
-        status_text.text("PK10分析完成!")
+        for (account, lottery, period), group in grouped:
+            # 按玩法分类分别分析
+            for play_category, category_group in group.groupby('玩法分类'):
+                category_results = self._analyze_by_play_category(
+                    account, lottery, period, category_group, play_category, lottery_type
+                )
+                for result_type, records in category_results.items():
+                    results[result_type].extend(records)
         
         return results
     
-    def _analyze_pk10_two_sides(self, account, lottery, period, group, results):
-        """分析PK10两面玩法"""
-        two_sides_categories = ['两面', '双面']
+    def _analyze_by_play_category(self, account, lottery, period, group, play_category, lottery_type):
+        """按玩法分类分析"""
+        # 路由到对应的分析方法
+        analysis_routes = {
+            'LHC': self._analyze_lhc_play_category,
+            'K3': self._analyze_k3_play_category,
+            'PK10': self._analyze_pk10_play_category,
+            'SSC': self._analyze_ssc_play_category, 
+            '3D': self._analyze_3d_play_category,
+            'THREE_COLOR': self._analyze_three_color_play_category
+        }
         
-        two_sides_group = group[group['玩法分类'].isin(two_sides_categories)]
+        if lottery_type in analysis_routes:
+            return analysis_routes[lottery_type](account, lottery, period, group, play_category)
+        
+        return defaultdict(list)
+    
+    # ==================== 六合彩分析方法 ====================
+    def _analyze_lhc_play_category(self, account, lottery, period, group, play_category):
+        """六合彩玩法分类分析"""
+        results = defaultdict(list)
+        
+        # 六合彩玩法路由
+        lhc_analysis_methods = {
+            '特码': self._analyze_lhc_tema,
+            '正码': self._analyze_lhc_zhengma,
+            '正1特': self._analyze_lhc_zhengte,
+            '正2特': self._analyze_lhc_zhengte,
+            '正3特': self._analyze_lhc_zhengte,
+            '正4特': self._analyze_lhc_zhengte,
+            '正5特': self._analyze_lhc_zhengte,
+            '正6特': self._analyze_lhc_zhengte,
+            '尾数': self._analyze_lhc_tail,
+            '特尾': self._analyze_lhc_tail,
+            '全尾': self._analyze_lhc_tail,
+            '平特': self._analyze_lhc_zodiac,
+            '特肖': self._analyze_lhc_zodiac,
+            '一肖': self._analyze_lhc_zodiac,
+            '两面': self._analyze_lhc_two_sides,
+            '色波': self._analyze_lhc_wave,
+            '半波': self._analyze_lhc_banbo,
+            '五行': self._analyze_lhc_five_elements,
+            '二连肖': self._analyze_lhc_lianxiao,
+            '三连肖': self._analyze_lhc_lianxiao,
+            '四连肖': self._analyze_lhc_lianxiao,
+            '五连肖': self._analyze_lhc_lianxiao,
+            '二连尾': self._analyze_lhc_lianwei,
+            '三连尾': self._analyze_lhc_lianwei,
+            '四连尾': self._analyze_lhc_lianwei,
+            '五连尾': self._analyze_lhc_lianwei
+        }
+        
+        if play_category in lhc_analysis_methods:
+            method = lhc_analysis_methods[play_category]
+            return method(account, lottery, period, group, play_category)
+        
+        return defaultdict(list)
+    
+    def _analyze_lhc_tema(self, account, lottery, period, group, play_category):
+        """六合彩特码分析"""
+        return self._analyze_number_bets(account, lottery, period, group, play_category, 'LHC', '特码多码')
+    
+    def _analyze_lhc_zhengma(self, account, lottery, period, group, play_category):
+        """六合彩正码分析"""
+        return self._analyze_number_bets(account, lottery, period, group, play_category, 'LHC', '正码多码')
+    
+    def _analyze_lhc_zhengte(self, account, lottery, period, group, play_category):
+        """六合彩正码特分析"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        all_bets = defaultdict(set)
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            clean_content = self._parse_lhc_content(content)
+            
+            numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
+            all_numbers.update(numbers)
+            
+            two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
+            for bet_type, bets in two_sides_analysis.items():
+                all_bets[bet_type].update(bets)
+        
+        # 多码检测
+        threshold = self.threshold_manager.get_threshold('LHC', play_category, 'multi_number')
+        if len(all_numbers) >= threshold:
+            record = self._create_number_record(
+                account, lottery, period, play_category, all_numbers, '正特多码'
+            )
+            self._add_unique_result(results, '正特多码', record)
+        
+        # 矛盾检测
+        conflicts = []
+        wave_set = all_bets.get('wave', set())
+        
+        if '大' in all_bets.get('normal_size', set()) and '小' in all_bets.get('normal_size', set()):
+            conflicts.append('大小矛盾')
+        if '单' in all_bets.get('parity', set()) and '双' in all_bets.get('parity', set()):
+            conflicts.append('单双矛盾')
+        if len(wave_set) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
+            conflicts.append('波色多组投注')
+        
+        if conflicts:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '矛盾类型': '、'.join(conflicts),
+                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正特矛盾')
+            }
+            self._add_unique_result(results, '正特矛盾', record)
+        
+        return results
+    
+    def _analyze_lhc_tail(self, account, lottery, period, group, play_category):
+        """六合彩尾数分析"""
+        results = defaultdict(list)
+        
+        all_tails = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            clean_content = self._parse_lhc_content(content)
+            tails = self.data_analyzer.extract_tails_from_content(clean_content)
+            all_tails.update(tails)
+        
+        # 根据不同的尾数玩法使用不同的结果键
+        if play_category == '尾数':
+            result_key = '尾数多码'
+        elif play_category == '特尾':
+            result_key = '特尾多尾'
+        elif play_category == '全尾':
+            result_key = '全尾多尾'
+        else:
+            result_key = '尾数多码'
+        
+        threshold = self.threshold_manager.get_threshold('LHC', play_category, 'multi_tail')
+        if len(all_tails) >= threshold:
+            bet_content = ', '.join([f"{tail}尾" for tail in sorted(all_tails)])
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': f"{play_category}（{len(all_tails)}尾）",
+                '尾数数量': len(all_tails),
+                '投注内容': bet_content,
+                '排序权重': self._calculate_sort_weight({'尾数数量': len(all_tails)}, result_key)
+            }
+            self._add_unique_result(results, result_key, record)
+        
+        return results
+    
+    def _analyze_lhc_zodiac(self, account, lottery, period, group, play_category):
+        """六合彩生肖分析"""
+        results = defaultdict(list)
+        
+        all_zodiacs = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            clean_content = self._parse_lhc_content(content)
+            zodiacs = self.data_analyzer.extract_zodiacs_from_content(clean_content)
+            all_zodiacs.update(zodiacs)
+        
+        threshold = self.threshold_manager.get_threshold('LHC', play_category, 'zodiac_play')
+        if len(all_zodiacs) >= threshold:
+            # 根据玩法分类确定结果键
+            if play_category == '平特':
+                result_key = '平特多肖'
+            elif play_category == '特肖':
+                result_key = '特肖多肖'
+            elif play_category == '一肖':
+                result_key = '一肖多肖'
+            else:
+                result_key = '生肖多肖'
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '生肖数量': len(all_zodiacs),
+                '投注内容': ', '.join(sorted(all_zodiacs)),
+                '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, result_key)
+            }
+            self._add_unique_result(results, result_key, record)
+        
+        return results
+    
+    def _analyze_lhc_two_sides(self, account, lottery, period, group, play_category):
+        """六合彩两面玩法分析"""
+        results = defaultdict(list)
+        
+        all_bets = {
+            'range_bet': set(),
+            'normal_size': set(),
+            'tail_size': set(),
+            'parity': set(),
+            'sum_parity': set(),
+            'animal_type': set(),
+            'zodiac': set(),
+            'wave': set()
+        }
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
+            
+            for bet_type in two_sides_analysis:
+                if bet_type in all_bets:
+                    all_bets[bet_type].update(two_sides_analysis[bet_type])
+        
+        # 区间多组检测
+        if len(all_bets['range_bet']) >= THRESHOLD_CONFIG['LHC']['range_bet']:
+            sorted_ranges = sorted(list(all_bets['range_bet']))
+            bet_content = ', '.join(sorted_ranges)
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '投注区间数': len(all_bets['range_bet']),
+                '投注区间': sorted_ranges,
+                '投注内容': bet_content,
+                '排序权重': self._calculate_sort_weight({'投注区间数': len(all_bets['range_bet'])}, '区间多组')
+            }
+            self._add_unique_result(results, '区间多组', record)
+        
+        # 矛盾检测
+        conflict_types = []
+        
+        if '大' in all_bets.get('normal_size', set()) and '小' in all_bets.get('normal_size', set()):
+            conflict_types.append('大小矛盾')
+        if '尾大' in all_bets.get('tail_size', set()) and '尾小' in all_bets.get('tail_size', set()):
+            conflict_types.append('尾大小矛盾')
+        if '单' in all_bets.get('parity', set()) and '双' in all_bets.get('parity', set()):
+            conflict_types.append('单双矛盾')
+        if '合单' in all_bets.get('sum_parity', set()) and '合双' in all_bets.get('sum_parity', set()):
+            conflict_types.append('合数单双矛盾')
+        if '家禽' in all_bets.get('animal_type', set()) and '野兽' in all_bets.get('animal_type', set()):
+            conflict_types.append('家禽野兽矛盾')
+        
+        if conflict_types:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '矛盾类型': '、'.join(conflict_types),
+                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面玩法矛盾')
+            }
+            self._add_unique_result(results, '两面玩法矛盾', record)
+        
+        # 波色检测
+        wave_set = all_bets.get('wave', set())
+        if len(wave_set) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '投注波色数': len(wave_set),
+                '投注波色': sorted(list(wave_set)),
+                '排序权重': self._calculate_sort_weight({'投注波色数': len(wave_set)}, '波色三组')
+            }
+            self._add_unique_result(results, '波色三组', record)
+        
+        return results
+
+    def _analyze_lhc_wave(self, account, lottery, period, group, play_category):
+        """六合彩波色精确分析"""
+        results = defaultdict(list)
+        
+        all_wave_bets = set()
+        all_banbo_bets = set()
+        
+        # 定义半波投注项
+        banbo_items = {
+            '红大', '红小', '红单', '红双',
+            '蓝大', '蓝小', '蓝单', '蓝双', 
+            '绿大', '绿小', '绿单', '绿双'
+        }
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            clean_content = self._parse_lhc_content(content)
+            
+            # 提取传统波色
+            waves = self.data_analyzer.extract_wave_color_from_content(clean_content)
+            all_wave_bets.update(waves)
+            
+            # 提取半波投注项
+            for item in banbo_items:
+                if item in clean_content:
+                    all_banbo_bets.add(item)
+        
+        # 传统色波全包检测
+        traditional_waves = {'红波', '蓝波', '绿波'}
+        if traditional_waves.issubset(all_wave_bets):
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '违规类型': '色波全包',
+                '投注波色数': len(traditional_waves),
+                '投注波色': sorted(list(traditional_waves)),
+                '投注内容': f"色波全包: {', '.join(sorted(traditional_waves))}",
+                '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '色波全包')
+            }
+            self._add_unique_result(results, '色波全包', record)
+        
+        return results
+    
+    def _analyze_lhc_banbo(self, account, lottery, period, group, play_category):
+        """六合彩半波精确分析"""
+        results = defaultdict(list)
+        
+        all_banbo_bets = set()
+        
+        # 定义半波投注项
+        size_full_set = {'红大', '红小', '蓝大', '蓝小', '绿大', '绿小'}
+        parity_full_set = {'红单', '红双', '蓝单', '蓝双', '绿单', '绿双'}
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 解析玩法-投注内容格式
+            if '-' in content:
+                parts = content.split('-', 1)
+                bet_content = parts[1].strip()
+            else:
+                bet_content = content
+            
+            # 提取所有半波投注项
+            for bet in size_full_set.union(parity_full_set):
+                if bet in bet_content:
+                    all_banbo_bets.add(bet)
+        
+        # 大小全包检测
+        if size_full_set.issubset(all_banbo_bets):
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '违规类型': '半波大小全包',
+                '投注半波数': len(size_full_set),
+                '投注半波': sorted(list(size_full_set)),
+                '投注内容': ', '.join(sorted(size_full_set)),
+                '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '半波大小全包')
+            }
+            self._add_unique_result(results, '半波大小全包', record)
+        
+        # 单双全包检测
+        if parity_full_set.issubset(all_banbo_bets):
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '违规类型': '半波单双全包',
+                '投注半波数': len(parity_full_set),
+                '投注半波': sorted(list(parity_full_set)),
+                '投注内容': ', '.join(sorted(parity_full_set)),
+                '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '半波单双全包')
+            }
+            self._add_unique_result(results, '半波单双全包', record)
+        
+        return results
+    
+    def _analyze_lhc_five_elements(self, account, lottery, period, group, play_category):
+        """六合彩五行精确分析"""
+        results = defaultdict(list)
+        
+        all_elements = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            clean_content = self._parse_lhc_content(content)
+            elements = self.data_analyzer.extract_five_elements_from_content(clean_content)
+            all_elements.update(elements)
+        
+        if len(all_elements) >= THRESHOLD_CONFIG['LHC']['five_elements']:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '投注五行数': len(all_elements),
+                '投注五行': sorted(list(all_elements)),
+                '排序权重': self._calculate_sort_weight({'投注五行数': len(all_elements)}, '五行多组')
+            }
+            self._add_unique_result(results, '五行多组', record)
+        
+        return results
+    
+    def _analyze_lhc_lianxiao(self, account, lottery, period, group, play_category):
+        """六合彩连肖精确分析"""
+        results = defaultdict(list)
+        
+        all_zodiacs = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 解析玩法-投注内容格式
+            if '-' in content:
+                parts = content.split('-', 1)
+                bet_content = parts[1].strip()
+            else:
+                bet_content = content
+                
+            zodiacs = self.data_analyzer.extract_zodiacs_from_content(bet_content)
+            all_zodiacs.update(zodiacs)
+        
+        # 连肖类型阈值配置
+        lianxiao_thresholds = {
+            '二连肖': 7,
+            '三连肖': 7,
+            '四连肖': 7,
+            '五连肖': 8
+        }
+        
+        threshold = lianxiao_thresholds.get(play_category, 6)
+        
+        if len(all_zodiacs) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': f"{play_category}（{len(all_zodiacs)}生肖）",
+                '违规类型': f'{play_category}多肖',
+                '生肖数量': len(all_zodiacs),
+                '投注内容': ', '.join(sorted(all_zodiacs)),
+                '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, f'{play_category}多肖')
+            }
+            self._add_unique_result(results, f'{play_category}多肖', record)
+        
+        return results
+    
+    def _analyze_lhc_lianwei(self, account, lottery, period, group, play_category):
+        """六合彩连尾精确分析"""
+        results = defaultdict(list)
+        
+        all_tails = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            tails = self.data_analyzer.extract_tails_from_content(content)
+            all_tails.update(tails)
+        
+        # 连尾类型阈值配置
+        lianwei_thresholds = {
+            '二连尾': 7,
+            '三连尾': 7,
+            '四连尾': 7,
+            '五连尾': 8
+        }
+        
+        threshold = lianwei_thresholds.get(play_category, 6)
+        
+        if len(all_tails) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': f"{play_category}（{len(all_tails)}尾）",
+                '违规类型': f'{play_category}多尾',
+                '尾数数量': len(all_tails),
+                '投注内容': ', '.join([f"{tail}尾" for tail in sorted(all_tails)]),
+                '排序权重': self._calculate_sort_weight({'尾数数量': len(all_tails)}, f'{play_category}多尾')
+            }
+            self._add_unique_result(results, f'{play_category}多尾', record)
+        
+        return results
+
+    # ==================== 快三分析方法 ====================
+    def _analyze_k3_play_category(self, account, lottery, period, group, play_category):
+        """快三玩法分类分析"""
+        results = defaultdict(list)
+        
+        # 快三玩法路由
+        k3_analysis_methods = {
+            '和值': self._analyze_k3_hezhi,
+            '和值_大小单双': self._analyze_k3_hezhi,
+            '独胆': self._analyze_k3_dudan,
+            '二不同号': self._analyze_k3_different,
+            '三不同号': self._analyze_k3_different,
+            '两面': self._analyze_k3_two_sides
+        }
+        
+        if play_category in k3_analysis_methods:
+            method = k3_analysis_methods[play_category]
+            return method(account, lottery, period, group, play_category)
+        
+        return defaultdict(list)
+    
+    def _analyze_k3_hezhi(self, account, lottery, period, group, play_category):
+        """快三和值分析"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        all_contents = []
+        has_big = False
+        has_small = False
+        has_single = False
+        has_double = False
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 提取数字
+            numbers = self.data_analyzer.extract_numbers_from_content(
+                content,
+                LOTTERY_CONFIGS['K3']['hezhi_min'],
+                LOTTERY_CONFIGS['K3']['hezhi_max']
+            )
+            all_numbers.update(numbers)
+            all_contents.append(content)
+            
+            # 检查大小单双
+            content_lower = content.lower()
+            if '大' in content_lower:
+                has_big = True
+            if '小' in content_lower:
+                has_small = True
+            if '单' in content_lower:
+                has_single = True
+            if '双' in content_lower:
+                has_double = True
+        
+        # 和值多码检测
+        threshold = self.threshold_manager.get_threshold('K3', play_category, 'hezhi_multi_number')
+        if len(all_numbers) >= threshold:
+            bet_content = ', '.join([str(num) for num in sorted(all_numbers)])
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': bet_content,
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '和值多码')
+            }
+            self._add_unique_result(results, '和值多码', record)
+            return results  # 避免重复记录
+        
+        # 和值矛盾检测
+        conflict_types = []
+        if has_big and has_small:
+            conflict_types.append('大小')
+        if has_single and has_double:
+            conflict_types.append('单双')
+        
+        if conflict_types:
+            bet_content_parts = []
+            if has_big:
+                bet_content_parts.append('大')
+            if has_small:
+                bet_content_parts.append('小')
+            if has_single:
+                bet_content_parts.append('单')
+            if has_double:
+                bet_content_parts.append('双')
+            bet_content = ', '.join(bet_content_parts)
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '矛盾类型': '、'.join(conflict_types),
+                '投注内容': bet_content,
+                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '和值矛盾')
+            }
+            self._add_unique_result(results, '和值矛盾', record)
+        
+        # 和值大小矛盾检测
+        if all_numbers and len(all_numbers) < threshold:
+            small_values = [num for num in all_numbers if 3 <= num <= 10]
+            big_values = [num for num in all_numbers if 11 <= num <= 18]
+            single_values = [num for num in all_numbers if num % 2 == 1]
+            double_values = [num for num in all_numbers if num % 2 == 0]
+            
+            # 收集所有可能的矛盾
+            possible_contradictions = []
+            
+            if has_small and len(big_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
+                contradiction_value = len(big_values)
+                description = f"投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
+                possible_contradictions.append(('大小矛盾', description, contradiction_value))
+            
+            if has_big and len(small_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
+                contradiction_value = len(small_values)
+                description = f"投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
+                possible_contradictions.append(('大小矛盾', description, contradiction_value))
+            
+            if has_single and len(double_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
+                contradiction_value = len(double_values)
+                description = f"投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
+                possible_contradictions.append(('单双矛盾', description, contradiction_value))
+            
+            if has_double and len(single_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
+                contradiction_value = len(single_values)
+                description = f"投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
+                possible_contradictions.append(('单双矛盾', description, contradiction_value))
+            
+            if possible_contradictions:
+                possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+                best_contradiction = possible_contradictions[0]
+                contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+                
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': play_category,
+                    '矛盾类型': contradiction_desc,
+                    '矛盾值': contradiction_value,
+                    '大号码数量': len(big_values),
+                    '小号码数量': len(small_values),
+                    '单号码数量': len(single_values),
+                    '双号码数量': len(double_values),
+                    '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值大小矛盾')
+                }
+                self._add_unique_result(results, '和值大小矛盾', record)
+        
+        return results
+    
+    def _analyze_k3_dudan(self, account, lottery, period, group, play_category):
+        """快三独胆分析"""
+        results = defaultdict(list)
+        
+        # 聚合同一账户同一期号的所有独胆投注
+        all_numbers = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
+            all_numbers.update(numbers)
+        
+        threshold = self.threshold_manager.get_threshold('K3', play_category, 'dudan_multi_number')
+        if len(all_numbers) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': f"聚合投注: {', '.join([str(num) for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '独胆多码')
+            }
+            self._add_unique_result(results, '独胆多码', record)
+        
+        return results
+    
+    def _analyze_k3_different(self, account, lottery, period, group, play_category):
+        """快三不同号分析"""
+        results = defaultdict(list)
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
+            
+            if len(numbers) == 6:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': play_category,
+                    '号码数量': len(numbers),
+                    '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '不同号全包')
+                }
+                self._add_unique_result(results, '不同号全包', record)
+        
+        return results
+    
+    def _analyze_k3_two_sides(self, account, lottery, period, group, play_category):
+        """快三两面分析"""
+        results = defaultdict(list)
+        
+        has_big = False
+        has_small = False
+        has_single = False
+        has_double = False
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            content_lower = content.lower()
+            
+            if '大' in content_lower:
+                has_big = True
+            if '小' in content_lower:
+                has_small = True
+            if '单' in content_lower:
+                has_single = True
+            if '双' in content_lower:
+                has_double = True
+        
+        conflict_types = []
+        if has_big and has_small:
+            conflict_types.append('大小')
+        if has_single and has_double:
+            conflict_types.append('单双')
+        
+        if conflict_types:
+            bet_content_parts = []
+            if has_big:
+                bet_content_parts.append('大')
+            if has_small:
+                bet_content_parts.append('小')
+            if has_single:
+                bet_content_parts.append('单')
+            if has_double:
+                bet_content_parts.append('双')
+            bet_content = ', '.join(bet_content_parts)
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '矛盾类型': '、'.join(conflict_types),
+                '投注内容': bet_content,
+                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面矛盾')
+            }
+            self._add_unique_result(results, '两面矛盾', record)
+        
+        return results
+
+    # ==================== PK10/赛车分析方法 ====================
+    def _analyze_pk10_play_category(self, account, lottery, period, group, play_category):
+        """PK10玩法分类分析"""
+        results = defaultdict(list)
+        
+        # PK10玩法路由
+        pk10_analysis_methods = {
+            '冠军': self._analyze_pk10_position,
+            '亚军': self._analyze_pk10_position,
+            '第三名': self._analyze_pk10_position,
+            '第四名': self._analyze_pk10_position,
+            '第五名': self._analyze_pk10_position,
+            '第六名': self._analyze_pk10_position,
+            '第七名': self._analyze_pk10_position,
+            '第八名': self._analyze_pk10_position,
+            '第九名': self._analyze_pk10_position,
+            '第十名': self._analyze_pk10_position,
+            '前一': self._analyze_pk10_position,
+            '1-5名': self._analyze_pk10_range,
+            '6-10名': self._analyze_pk10_range,
+            '定位胆': self._analyze_pk10_dingwei,
+            '定位胆_第1~5名': self._analyze_pk10_dingwei,
+            '定位胆_第6~10名': self._analyze_pk10_dingwei,
+            '冠亚和': self._analyze_pk10_gyh,
+            '冠亚和_大小单双': self._analyze_pk10_gyh,
+            '冠亚和_和值': self._analyze_pk10_gyh,
+            '两面': self._analyze_pk10_two_sides,
+            '双面': self._analyze_pk10_two_sides,
+            '大小_冠军': self._analyze_pk10_independent,
+            '大小_亚军': self._analyze_pk10_independent,
+            '大小_季军': self._analyze_pk10_independent,
+            '单双_冠军': self._analyze_pk10_independent,
+            '单双_亚军': self._analyze_pk10_independent,
+            '单双_季军': self._analyze_pk10_independent,
+            '龙虎_冠军': self._analyze_pk10_dragon_tiger,
+            '龙虎_亚军': self._analyze_pk10_dragon_tiger,
+            '龙虎_季军': self._analyze_pk10_dragon_tiger
+        }
+        
+        if play_category in pk10_analysis_methods:
+            method = pk10_analysis_methods[play_category]
+            return method(account, lottery, period, group, play_category)
+        
+        return defaultdict(list)
+    
+    def _analyze_pk10_position(self, account, lottery, period, group, play_category):
+        """PK10位置号码分析"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 使用统一解析器解析PK10内容
+            bets_by_position = ContentParser.parse_pk10_content(content)
+            
+            for position, numbers in bets_by_position.items():
+                # 如果解析出的位置匹配当前玩法分类，则收集号码
+                if self._is_position_match(position, play_category):
+                    all_numbers.update(numbers)
+        
+        # 多码检测
+        threshold = self.threshold_manager.get_threshold('PK10', play_category, 'multi_number')
+        if len(all_numbers) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '位置': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': f"{play_category}-{','.join([f'{num:02d}' for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '超码')
+            }
+            self._add_unique_result(results, '超码', record)
+        
+        return results
+    
+    def _is_position_match(self, position, play_category):
+        """检查位置是否匹配玩法分类"""
+        position_mapping = {
+            '冠军': ['冠军', '前一'],
+            '亚军': ['亚军'],
+            '第三名': ['第三名', '季军'],
+            '第四名': ['第四名'],
+            '第五名': ['第五名'],
+            '第六名': ['第六名'],
+            '第七名': ['第七名'],
+            '第八名': ['第八名'],
+            '第九名': ['第九名'],
+            '第十名': ['第十名']
+        }
+        
+        for key, values in position_mapping.items():
+            if play_category == key and position in values:
+                return True
+        
+        return play_category == position
+    
+    def _analyze_pk10_range(self, account, lottery, period, group, play_category):
+        """PK10范围分析（1-5名、6-10名）"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 10, is_pk10=True)
+            all_numbers.update(numbers)
+        
+        threshold = self.threshold_manager.get_threshold('PK10', play_category, 'multi_number')
+        if len(all_numbers) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': f"{play_category}: {', '.join([f'{num:02d}' for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '超码')
+            }
+            self._add_unique_result(results, '超码', record)
+        
+        return results
+    
+    def _analyze_pk10_dingwei(self, account, lottery, period, group, play_category):
+        """PK10定位胆分析"""
+        results = defaultdict(list)
+        
+        position_numbers = defaultdict(set)
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 使用统一解析器解析定位胆内容
+            bets_by_position = ContentParser.parse_pk10_content(content)
+            
+            for position, numbers in bets_by_position.items():
+                position_numbers[position].update(numbers)
+        
+        # 检查每个位置的超码
+        for position, numbers in position_numbers.items():
+            threshold = self.threshold_manager.get_threshold('PK10', '定位胆', 'multi_number')
+            if len(numbers) >= threshold:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': play_category,
+                    '位置': position,
+                    '号码数量': len(numbers),
+                    '投注内容': f"{position}-{','.join([f'{num:02d}' for num in sorted(numbers)])}",
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '超码')
+                }
+                self._add_unique_result(results, '超码', record)
+        
+        return results
+    
+    def _analyze_pk10_gyh(self, account, lottery, period, group, play_category):
+        """PK10冠亚和分析"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        all_size_parity = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 提取冠亚和号码
+            numbers = re.findall(r'\b\d{1,2}\b', content)
+            numbers = [int(num) for num in numbers if 1 <= int(num) <= 19]
+            all_numbers.update(numbers)
+            
+            # 提取大小单双
+            size_parity = self.data_analyzer.extract_size_parity_from_content(content)
+            all_size_parity.update(size_parity)
+        
+        # 冠亚和多码检测
+        threshold = self.threshold_manager.get_threshold('PK10', '冠亚和', 'gyh_multi_number')
+        if len(all_numbers) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': ', '.join([str(num) for num in sorted(all_numbers)]),
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '冠亚和多码')
+            }
+            self._add_unique_result(results, '冠亚和多码', record)
+            return results
+        
+        # 冠亚和矛盾检测
+        conflicts = []
+        if '大' in all_size_parity and '小' in all_size_parity:
+            conflicts.append('大小')
+        if '单' in all_size_parity and '双' in all_size_parity:
+            conflicts.append('单双')
+        
+        if conflicts:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '矛盾类型': '、'.join(conflicts),
+                '投注内容': ', '.join(sorted(all_size_parity)),
+                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '冠亚和矛盾')
+            }
+            self._add_unique_result(results, '冠亚和矛盾', record)
+        
+        return results
+    
+    def _analyze_pk10_two_sides(self, account, lottery, period, group, play_category):
+        """PK10两面玩法分析"""
+        results = defaultdict(list)
         
         position_bets = defaultdict(set)
         
-        for _, row in two_sides_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             
             if '-' in content:
@@ -1768,186 +2753,33 @@ class AnalysisEngine:
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': '两面',
+                    '玩法分类': play_category,
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
                     '投注内容': f"{position}-{','.join(sorted(bets))}",
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
                 }
                 self._add_unique_result(results, '两面矛盾', record)
+        
+        return results
     
-    def _analyze_pk10_gyh(self, account, lottery, period, group, results):
-        """分析PK10冠亚和玩法"""
-        gyh_categories = ['冠亚和', '冠亚和_大小单双', '冠亚和_和值']
-        
-        gyh_group = group[group['玩法分类'].isin(gyh_categories)]
-        
-        all_numbers = set()
-        all_size_parity = set()
-        
-        for _, row in gyh_group.iterrows():
-            content = str(row['内容'])
-            
-            # 改进：提取所有数字，不限制范围
-            numbers = re.findall(r'\b\d{1,2}\b', content)
-            numbers = [int(num) for num in numbers if 1 <= int(num) <= 19]  # 冠亚和范围3-19，但允许提取1-19
-            all_numbers.update(numbers)
-            
-            size_parity = self.data_analyzer.extract_size_parity_from_content(content)
-            all_size_parity.update(size_parity)
-        
-        # 冠亚和多码检测 - 使用所有提取的数字
-        if len(all_numbers) >= THRESHOLD_CONFIG['PK10']['gyh_multi_number']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '冠亚和',
-                '号码数量': len(all_numbers),
-                '投注内容': ', '.join([str(num) for num in sorted(all_numbers)]),
-                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '冠亚和多码')
-            }
-            self._add_unique_result(results, '冠亚和多码', record)
-            return  # 如果检测到多号码，不再检测其他类型
-        
-        # 原有的矛盾检测逻辑保持不变...
-        conflicts = []
-        if '大' in all_size_parity and '小' in all_size_parity:
-            conflicts.append('大小')
-        if '单' in all_size_parity and '双' in all_size_parity:
-            conflicts.append('单双')
-        
-        if conflicts:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '冠亚和',
-                '矛盾类型': '、'.join(conflicts),
-                '投注内容': ', '.join(sorted(all_size_parity)),
-                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '冠亚和矛盾')
-            }
-            self._add_unique_result(results, '冠亚和矛盾', record)
-        
-        # 冠亚和矛盾检测
-        conflicts = []
-        if '大' in all_size_parity and '小' in all_size_parity:
-            conflicts.append('大小')
-        if '单' in all_size_parity and '双' in all_size_parity:
-            conflicts.append('单双')
-        
-        if conflicts:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '冠亚和',
-                '矛盾类型': '、'.join(conflicts),
-                '投注内容': ', '.join(sorted(all_size_parity)),
-                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '冠亚和矛盾')
-            }
-            self._add_unique_result(results, '冠亚和矛盾', record)
-    
-    def _analyze_pk10_number_plays(self, account, lottery, period, group, results):
-        """分析PK10号码类玩法 - 增强位置判断"""
-        number_categories = [
-            '1-5名', '6-10名', '冠军', '前一', '亚军', '第三名', '第四名', '第五名',
-            '第六名', '第七名', '第八名', '第九名', '第十名', '定位胆',
-            '定位胆_第1~5名', '定位胆_第6~10名'
-        ]
-        
-        number_group = group[group['玩法分类'].isin(number_categories)]
-        
-        all_numbers_by_position = defaultdict(set)
-        
-        # 修复这里的缩进：整个for循环应该缩进
-        for _, row in number_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 新增：基于内容重新分类
-            actual_category = self.normalize_play_category_from_content(content, category, 'PK10')
-            
-            # 增强位置判断：从玩法分类推断位置
-            inferred_position = self._infer_position_from_category(actual_category)  # 使用 actual_category
-        
-            # 使用统一解析器
-            bets_by_position = ContentParser.parse_pk10_content(content)
-            
-            for position, bets in bets_by_position.items():
-                # 如果解析出的位置是"未知位置"，使用从玩法分类推断的位置
-                if position == '未知位置' and inferred_position:
-                    position = inferred_position
-                
-                # 提取每个位置的号码
-                for bet in bets:
-                    numbers = self.data_analyzer.extract_numbers_from_content(bet, 1, 10, is_pk10=True)
-                    all_numbers_by_position[position].update(numbers)
-        
-        # 检查每个位置的超码
-        for position, numbers in all_numbers_by_position.items():
-            if len(numbers) >= THRESHOLD_CONFIG['PK10']['multi_number']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '号码类',
-                    '位置': position,  # 现在位置信息更准确
-                    '号码数量': len(numbers),
-                    '投注内容': f"{position}-{','.join([f'{num:02d}' for num in sorted(numbers)])}",
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '超码')
-                }
-                self._add_unique_result(results, '超码', record)
-    
-    def _infer_position_from_category(self, category):
-        """从玩法分类推断位置"""
-        category_str = str(category).strip()
-        
-        position_mapping = {
-            '冠军': ['冠军', '前一', '第1名', '第一名'],
-            '亚军': ['亚军', '第2名', '第二名'],
-            '第三名': ['第三名', '季军', '第3名'],
-            '第四名': ['第四名', '第4名'],
-            '第五名': ['第五名', '第5名'],
-            '第六名': ['第六名', '第6名'],
-            '第七名': ['第七名', '第7名'],
-            '第八名': ['第八名', '第8名'],
-            '第九名': ['第九名', '第9名'],
-            '第十名': ['第十名', '第10名'],
-            '1-5名': ['1-5名', '定位胆_第1~5名'],
-            '6-10名': ['6-10名', '定位胆_第6~10名']
-        }
-        
-        for position, keywords in position_mapping.items():
-            for keyword in keywords:
-                if keyword in category_str:
-                    return position
-        
-        return None
-    
-    def _analyze_pk10_independent_plays(self, account, lottery, period, group, results):
-        """分析PK10独立玩法（大小单双龙虎）"""
-        independent_categories = [
-            '大小_冠军', '大小_亚军', '大小_季军',
-            '单双_冠军', '单双_亚军', '单双_季军',
-            '龙虎_冠军', '龙虎_亚军', '龙虎_季军'
-        ]
-        
-        independent_group = group[group['玩法分类'].isin(independent_categories)]
+    def _analyze_pk10_independent(self, account, lottery, period, group, play_category):
+        """PK10独立玩法分析（大小单双）"""
+        results = defaultdict(list)
         
         position_bets = defaultdict(set)
         
-        for _, row in independent_group.iterrows():  # 这个for循环需要正确缩进
+        for _, row in group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 确定位置（前一就是冠军）
+            # 确定位置
             if '冠军' in category or '前一' in category:
                 position = '冠军'
             elif '亚军' in category:
                 position = '亚军'
             elif '季军' in category:
-                position = '季军'
+                position = '第三名'
             else:
                 continue
             
@@ -1955,75 +2787,41 @@ class AnalysisEngine:
                 bets = self.data_analyzer.extract_size_parity_from_content(content)
             elif '单双' in category:
                 bets = self.data_analyzer.extract_size_parity_from_content(content)
-            elif '龙虎' in category:
-                bets = self.data_analyzer.extract_dragon_tiger_from_content(content)
             else:
                 bets = []
             
             position_bets[position].update(bets)
         
-        for position, bets in position_bets.items():  # 这个for循环也需要正确缩进
+        for position, bets in position_bets.items():
             conflicts = []
             
             if '大' in bets and '小' in bets:
                 conflicts.append('大小')
             if '单' in bets and '双' in bets:
                 conflicts.append('单双')
-            if '龙' in bets and '虎' in bets:
-                conflicts.append('龙虎')
             
             if conflicts:
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': '独立玩法',
+                    '玩法分类': play_category,
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
                     '投注内容': f"{position}-{','.join(sorted(bets))}",
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '独立玩法矛盾')
                 }
                 self._add_unique_result(results, '独立玩法矛盾', record)
+        
+        return results
     
-    def _analyze_pk10_qianyi_plays(self, account, lottery, period, group, results):
-        """分析PK10前一玩法"""
-        qianyi_categories = ['前一']
-        
-        qianyi_group = group[group['玩法分类'].isin(qianyi_categories)]
-        
-        for _, row in qianyi_group.iterrows():
-            content = str(row['内容'])
-            
-            # 提取号码
-            numbers = self.data_analyzer.extract_numbers_from_content(
-                content,
-                LOTTERY_CONFIGS['PK10']['min_number'],
-                LOTTERY_CONFIGS['PK10']['max_number']
-            )
-            
-            # 前一多码检测（前一就是冠军，所以使用冠军的阈值）
-            if len(numbers) >= THRESHOLD_CONFIG['PK10']['multi_number']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '前一',
-                    '位置': '冠军',  # 显示为冠军位置
-                    '号码数量': len(numbers),
-                    '投注内容': ', '.join([f'{num:02d}' for num in sorted(numbers)]),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '超码')
-                }
-                self._add_unique_result(results, '超码', record)
-    
-    def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测"""
-        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
-        
-        dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
+    def _analyze_pk10_dragon_tiger(self, account, lottery, period, group, play_category):
+        """PK10龙虎分析"""
+        results = defaultdict(list)
         
         position_bets = defaultdict(set)
         
-        for _, row in dragon_tiger_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
@@ -2033,7 +2831,7 @@ class AnalysisEngine:
             elif '亚军' in category:
                 position = '亚军'
             elif '季军' in category:
-                position = '季军'
+                position = '第三名'
             else:
                 # 从内容推断位置
                 position = self.data_analyzer._infer_pk10_position_from_content(content)
@@ -2049,216 +2847,168 @@ class AnalysisEngine:
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': '龙虎',
+                    '玩法分类': play_category,
                     '位置': position,
                     '矛盾类型': '龙虎矛盾',
                     '投注内容': f"{position}-{','.join(sorted(bets))}",
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+        
+        return results
 
-    def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
-        """检测PK10十个位置全投情况"""
+    # ==================== 时时彩分析方法 ====================
+    def _analyze_ssc_play_category(self, account, lottery, period, group, play_category):
+        """时时彩玩法分类分析"""
+        results = defaultdict(list)
         
-        # 定义十个标准位置
-        standard_positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
-                             '第六名', '第七名', '第八名', '第九名', '第十名']
+        # 时时彩玩法路由
+        ssc_analysis_methods = {
+            '第1球': self._analyze_ssc_position,
+            '第2球': self._analyze_ssc_position,
+            '第3球': self._analyze_ssc_position,
+            '第4球': self._analyze_ssc_position,
+            '第5球': self._analyze_ssc_position,
+            '万位': self._analyze_ssc_position,
+            '千位': self._analyze_ssc_position,
+            '百位': self._analyze_ssc_position,
+            '十位': self._analyze_ssc_position,
+            '个位': self._analyze_ssc_position,
+            '1-5球': self._analyze_ssc_range,
+            '定位胆': self._analyze_ssc_dingwei,
+            '定位_万位': self._analyze_ssc_position,
+            '定位_千位': self._analyze_ssc_position,
+            '定位_百位': self._analyze_ssc_position,
+            '定位_十位': self._analyze_ssc_position,
+            '定位_个位': self._analyze_ssc_position,
+            '两面': self._analyze_ssc_two_sides,
+            '总和': self._analyze_ssc_zonghe,
+            '斗牛': self._analyze_ssc_douniu
+        }
         
-        # 收集所有位置投注
-        all_position_bets = defaultdict(set)
+        if play_category in ssc_analysis_methods:
+            method = ssc_analysis_methods[play_category]
+            return method(account, lottery, period, group, play_category)
         
-        # 分析各种玩法中的位置投注
-        self._collect_position_bets_from_plays(account, lottery, period, group, all_position_bets)
+        return defaultdict(list)
+    
+    def _analyze_ssc_position(self, account, lottery, period, group, play_category):
+        """时时彩位置分析"""
+        results = defaultdict(list)
         
-        # 检查是否有十个位置都有投注
-        positions_with_bets = set()
+        all_numbers = set()
         
-        for position in standard_positions:
-            if position in all_position_bets and all_position_bets[position]:
-                positions_with_bets.add(position)
-        
-        # 如果十个位置都有投注
-        if len(positions_with_bets) >= THRESHOLD_CONFIG['PK10']['all_positions_bet']:
-            # 分析投注类型（大小或单双）
-            bet_types = self._analyze_bet_types(all_position_bets, standard_positions)
+        for _, row in group.iterrows():
+            content = str(row['内容'])
             
+            # 使用统一解析器解析时时彩内容
+            bets_by_position = ContentParser.parse_ssc_content(content)
+            
+            for position, numbers in bets_by_position.items():
+                # 如果解析出的位置匹配当前玩法分类，则收集号码
+                if self._is_ssc_position_match(position, play_category):
+                    all_numbers.update(numbers)
+        
+        # 多码检测
+        threshold = self.threshold_manager.get_threshold('SSC', play_category, 'dingwei_multi')
+        if len(all_numbers) >= threshold:
             record = {
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '全位置投注',
-                '投注位置数': len(positions_with_bets),
-                '投注类型': bet_types,
-                '投注内容': f"十个位置全投: {bet_types}",
-                '排序权重': self._calculate_sort_weight({'投注位置数': len(positions_with_bets)}, '十个位置全投')
+                '玩法分类': play_category,
+                '位置': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': f"{play_category}-{','.join([str(num) for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '定位胆多码')
             }
-            self._add_unique_result(results, '十个位置全投', record)
-    
-    def _collect_position_bets_from_plays(self, account, lottery, period, group, all_position_bets):
-        """从各种玩法中收集位置投注信息 - 增强版本，记录具体投注内容"""
-        
-        # 1. 从两面玩法收集
-        two_sides_categories = ['两面', '双面']
-        two_sides_group = group[group['玩法分类'].isin(two_sides_categories)]
-        
-        for _, row in two_sides_group.iterrows():
-            content = str(row['内容'])
-            self._extract_position_bets_from_content(content, all_position_bets)
-        
-        # 2. 从独立玩法收集（大小单双龙虎）
-        independent_categories = [
-            '大小_冠军', '大小_亚军', '大小_季军',
-            '单双_冠军', '单双_亚军', '单双_季军',
-            '龙虎_冠军', '龙虎_亚军', '龙虎_季军'
-        ]
-        
-        independent_group = group[group['玩法分类'].isin(independent_categories)]
-        
-        for _, row in independent_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 确定位置
-            if '冠军' in category or '前一' in category:
-                position = '冠军'
-            elif '亚军' in category:
-                position = '亚军'
-            elif '季军' in category:
-                position = '第三名'
-            else:
-                continue
-            
-            # 提取具体的投注内容
-            if '大小' in category:
-                bets = self.data_analyzer.extract_size_parity_from_content(content)
-                # 只关注大小
-                size_bets = [bet for bet in bets if bet in ['大', '小']]
-                if size_bets:
-                    # 记录具体的投注内容，而不是笼统的"大小类"
-                    all_position_bets[position].update(size_bets)
-            elif '单双' in category:
-                bets = self.data_analyzer.extract_size_parity_from_content(content)
-                # 只关注单双
-                parity_bets = [bet for bet in bets if bet in ['单', '双']]
-                if parity_bets:
-                    # 记录具体的投注内容，而不是笼统的"单双类"
-                    all_position_bets[position].update(parity_bets)
-        
-        # 3. 从号码类玩法收集（定位胆等）
-        number_categories = [
-            '1-5名', '6-10名', '冠军', '前一', '亚军', '第三名', '第四名', '第五名',
-            '第六名', '第七名', '第八名', '第九名', '第十名', '定位胆',
-            '定位胆_第1~5名', '定位胆_第6~10名'
-        ]
-        
-        number_group = group[group['玩法分类'].isin(number_categories)]
-        
-        for _, row in number_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 使用统一解析器解析位置
-            bets_by_position = ContentParser.parse_pk10_content(content)
-            
-            for position, numbers in bets_by_position.items():
-                if numbers:  # 如果有号码投注
-                    all_position_bets[position].add('号码')
-    
-    def _extract_position_bets_from_content(self, content, all_position_bets):
-        """从内容中提取位置投注信息 - 增强版本，记录具体投注内容"""
-        content_str = str(content)
-        
-        if '-' in content_str:
-            parts = content_str.split(',')
-            for part in parts:
-                if '-' in part:
-                    try:
-                        position, bet_option = part.split('-', 1)
-                        position = self.data_analyzer._normalize_pk10_position(position)
-                        bet_option = bet_option.strip()
-                        
-                        # 直接记录具体的投注类型，而不是分类
-                        if bet_option in ['大', '小', '单', '双']:
-                            all_position_bets[position].add(bet_option)
-                    except ValueError:
-                        continue
-    
-    def _analyze_bet_types(self, all_position_bets, standard_positions):
-        """分析投注类型 - 最终修复版本"""
-        # 统计每个具体投注类型的数量
-        size_bets_count = {'大': 0, '小': 0}
-        parity_bets_count = {'单': 0, '双': 0}
-        number_count = 0
-        
-        for position in standard_positions:
-            if position in all_position_bets:
-                bets = all_position_bets[position]
-                
-                # 统计具体的大小投注
-                if '大' in bets:
-                    size_bets_count['大'] += 1
-                if '小' in bets:
-                    size_bets_count['小'] += 1
-                
-                # 统计具体的单双投注
-                if '单' in bets:
-                    parity_bets_count['单'] += 1
-                if '双' in bets:
-                    parity_bets_count['双'] += 1
-                
-                # 号码类投注（如果有的话）
-                if '号码' in bets:
-                    number_count += 1
-        
-        # 构建准确的投注类型描述
-        bet_types = []
-        
-        # 大小投注：只有当一个类型在8个或以上位置出现时才显示
-        for size_type, count in size_bets_count.items():
-            if count >= 8:
-                bet_types.append(size_type)
-                break  # 只显示主要的大小类型
-        
-        # 单双投注：只有当一个类型在8个或以上位置出现时才显示
-        for parity_type, count in parity_bets_count.items():
-            if count >= 8:
-                bet_types.append(parity_type)
-                break  # 只显示主要的单双类型
-        
-        # 号码投注
-        if number_count >= 8:
-            bet_types.append('号码')
-        
-        return '、'.join(bet_types) if bet_types else '混合投注'
-
-    # =============== 时时彩分析方法 ===============
-    def analyze_ssc_patterns(self, df):
-        """分析时时彩投注模式"""
-        results = defaultdict(list)
-        
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'SSC']
-        
-        if len(df_target) == 0:
-            return results
-        
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        
-        for (account, lottery, period), group in grouped:
-            self._analyze_ssc_two_sides(account, lottery, period, group, results)
-            self._analyze_ssc_douniu(account, lottery, period, group, results)
-            self._analyze_ssc_dingwei(account, lottery, period, group, results)
-            self._analyze_ssc_zonghe(account, lottery, period, group, results)
-            self._analyze_ssc_dingwei_detailed(account, lottery, period, group, results)
+            self._add_unique_result(results, '定位胆多码', record)
         
         return results
     
-    def _analyze_ssc_two_sides(self, account, lottery, period, group, results):
-        two_sides_group = group[group['玩法分类'] == '两面']
+    def _is_ssc_position_match(self, position, play_category):
+        """检查时时彩位置是否匹配玩法分类"""
+        position_mapping = {
+            '第1球': ['第1球', '万位', '定位_万位'],
+            '第2球': ['第2球', '千位', '定位_千位'],
+            '第3球': ['第3球', '百位', '定位_百位'],
+            '第4球': ['第4球', '十位', '定位_十位'],
+            '第5球': ['第5球', '个位', '定位_个位']
+        }
+        
+        for key, values in position_mapping.items():
+            if play_category == key and position in values:
+                return True
+        
+        return play_category == position
+    
+    def _analyze_ssc_range(self, account, lottery, period, group, play_category):
+        """时时彩范围分析（1-5球）"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
+            all_numbers.update(numbers)
+        
+        threshold = self.threshold_manager.get_threshold('SSC', play_category, 'dingwei_multi')
+        if len(all_numbers) >= threshold:
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '号码数量': len(all_numbers),
+                '投注内容': f"{play_category}: {', '.join([str(num) for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '定位胆多码')
+            }
+            self._add_unique_result(results, '定位胆多码', record)
+        
+        return results
+    
+    def _analyze_ssc_dingwei(self, account, lottery, period, group, play_category):
+        """时时彩定位胆分析"""
+        results = defaultdict(list)
+        
+        position_numbers = defaultdict(set)
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            # 使用统一解析器解析定位胆内容
+            bets_by_position = ContentParser.parse_ssc_content(content)
+            
+            for position, numbers in bets_by_position.items():
+                position_numbers[position].update(numbers)
+        
+        # 检查每个位置的超码
+        for position, numbers in position_numbers.items():
+            threshold = self.threshold_manager.get_threshold('SSC', '定位胆', 'dingwei_multi')
+            if len(numbers) >= threshold:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': play_category,
+                    '位置': position,
+                    '号码数量': len(numbers),
+                    '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
+                }
+                self._add_unique_result(results, '定位胆多码', record)
+        
+        return results
+    
+    def _analyze_ssc_two_sides(self, account, lottery, period, group, play_category):
+        """时时彩两面玩法分析"""
+        results = defaultdict(list)
         
         total_bets = set()
         ball_bets = defaultdict(set)
         
-        for _, row in two_sides_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             
             if '总和、龙虎-' in content:
@@ -2297,7 +3047,7 @@ class AnalysisEngine:
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '两面',
+                '玩法分类': play_category,
                 '矛盾类型': '、'.join(conflicts),
                 '投注内容': f"总和:{','.join(sorted(total_bets))}",
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
@@ -2316,100 +3066,22 @@ class AnalysisEngine:
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': '两面',
+                    '玩法分类': play_category,
                     '矛盾类型': f"{ball}{'、'.join(ball_conflicts)}",
                     '投注内容': f"{ball}:{','.join(sorted(bets))}",
                     '排序权重': self._calculate_sort_weight({'矛盾类型': f"{ball}{'、'.join(ball_conflicts)}"}, '两面矛盾')
                 }
                 self._add_unique_result(results, '两面矛盾', record)
+        
+        return results
     
-    def _analyze_ssc_douniu(self, account, lottery, period, group, results):
-        douniu_group = group[group['玩法分类'] == '斗牛']
-        
-        for _, row in douniu_group.iterrows():
-            content = str(row['内容'])
-            bull_types = self.data_analyzer.extract_douniu_types(content)
-            
-            if len(bull_types) >= THRESHOLD_CONFIG['SSC']['douniu_multi']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '斗牛',
-                    '号码数量': len(bull_types),
-                    '投注内容': ', '.join(sorted(bull_types)),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(bull_types)}, '斗牛多码')
-                }
-                self._add_unique_result(results, '斗牛多码', record)
-    
-    def _analyze_ssc_dingwei(self, account, lottery, period, group, results):
-        dingwei_categories = ['定位胆', '1-5球', '第1球', '第2球', '第3球', '第4球', '第5球']
-        
-        dingwei_group = group[group['玩法分类'].isin(dingwei_categories)]
-        
-        position_numbers = defaultdict(set)
-        
-        for _, row in dingwei_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 识别彩种类型
-            lottery_type = self.identify_lottery_type(lottery)
-            
-            # PK10竖线分隔格式处理
-            if lottery_type == 'PK10' and '|' in content and re.search(r'\d{2}', content):
-                positions = ['冠军', '亚军', '第三名', '第四名', '第五名']
-                parts = content.split('|')
-                
-                for i, part in enumerate(parts):
-                    if i < len(positions):
-                        position = positions[i]
-                        numbers = self.data_analyzer.extract_numbers_from_content(part, 1, 10)
-                        position_numbers[position].update(numbers)
-            
-            # 时时彩竖线分隔格式处理
-            elif '|' in content:
-                parts = content.split('|')
-                positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
-                for i, part in enumerate(parts):
-                    if i < len(positions) and part.strip() and part.strip() != '_':
-                        numbers = self.data_analyzer.extract_numbers_from_content(part, 0, 9)
-                        position_numbers[positions[i]].update(numbers)
-            
-            elif '-' in content:
-                parts = content.split(',')
-                for part in parts:
-                    if '-' in part:
-                        position, numbers_str = part.split('-', 1)
-                        numbers = self.data_analyzer.extract_numbers_from_content(numbers_str, 0, 9)
-                        position_numbers[position].update(numbers)
-            
-            else:
-                numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
-                if numbers:
-                    position = '第1球'
-                    position_numbers[position].update(numbers)
-        
-        for position, numbers in position_numbers.items():
-            if len(numbers) >= THRESHOLD_CONFIG['SSC']['dingwei_multi']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '定位胆',
-                    '位置': position,
-                    '号码数量': len(numbers),
-                    '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
-                }
-                self._add_unique_result(results, '定位胆多码', record)
-    
-    def _analyze_ssc_zonghe(self, account, lottery, period, group, results):
-        zonghe_group = group[group['玩法分类'] == '总和']
+    def _analyze_ssc_zonghe(self, account, lottery, period, group, play_category):
+        """时时彩总和分析"""
+        results = defaultdict(list)
         
         all_bets = set()
         
-        for _, row in zonghe_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             bets = self.data_analyzer.extract_size_parity_from_content(content)
             all_bets.update(bets)
@@ -2425,1086 +3097,69 @@ class AnalysisEngine:
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '总和',
+                '玩法分类': play_category,
                 '矛盾类型': '、'.join(conflicts),
                 '投注内容': ', '.join(sorted(all_bets)),
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '总和矛盾')
             }
             self._add_unique_result(results, '总和矛盾', record)
-    
-    def _analyze_ssc_dingwei_detailed(self, account, lottery, period, group, results):
-        """时时彩定位胆细分位置检测 - 增强位置判断"""
-        dingwei_detailed_categories = [
-            '定位_万位', '定位_千位', '定位_百位', '定位_十位', '定位_个位',
-            '万位', '千位', '百位', '十位', '个位',
-            '第1球', '第2球', '第3球', '第4球', '第5球'
-        ]
-        
-        dingwei_detailed_group = group[group['玩法分类'].isin(dingwei_detailed_categories)]
-        
-        position_numbers = defaultdict(set)
-        
-        # 修复这里的缩进：整个for循环应该缩进
-        for _, row in dingwei_detailed_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 新增：基于内容重新分类
-            actual_category = self.normalize_play_category_from_content(content, category, 'SSC')
-            
-            # 增强位置判断：从玩法分类推断位置
-            inferred_position = self._infer_ssc_position_from_category(actual_category)  # 使用 actual_category
-        
-            # 使用统一解析器
-            bets_by_position = ContentParser.parse_ssc_content(content)
-            
-            for position, bets in bets_by_position.items():
-                # 如果解析出的位置是"未知位置"，使用从玩法分类推断的位置
-                if position == '未知位置' and inferred_position:
-                    position = inferred_position
-                
-                # 提取每个位置的号码
-                for bet in bets:
-                    numbers = self.data_analyzer.extract_numbers_from_content(bet, 0, 9)
-                    position_numbers[position].update(numbers)
-        
-        # 检查每个位置的超码
-        for position, numbers in position_numbers.items():
-            if len(numbers) >= THRESHOLD_CONFIG['SSC']['dingwei_multi']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '定位胆',
-                    '位置': position,
-                    '号码数量': len(numbers),
-                    '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
-                }
-                self._add_unique_result(results, '定位胆多码', record)
-    
-    def _infer_ssc_position_from_category(self, category):
-        """从时时彩玩法分类推断位置"""
-        category_str = str(category).strip()
-        
-        position_mapping = {
-            '第1球': ['第1球', '定位_万位', '万位'],
-            '第2球': ['第2球', '定位_千位', '千位'],
-            '第3球': ['第3球', '定位_百位', '百位'],
-            '第4球': ['第4球', '定位_十位', '十位'],
-            '第5球': ['第5球', '定位_个位', '个位']
-        }
-        
-        for position, keywords in position_mapping.items():
-            for keyword in keywords:
-                if keyword in category_str:
-                    return position
-        
-        return None
-
-    # =============== 六合彩分析方法 ===============
-    def analyze_lhc_patterns(self, df):
-        """分析六合彩投注模式"""
-        results = defaultdict(list)
-        
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
-        
-        if len(df_target) == 0:
-            return results
-        
-        # 使用独立的尾数检测方法
-        self._analyze_lhc_tail_plays(df_target, results)
-        
-        # 其他检测方法
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        
-        for (account, lottery, period), group in grouped:
-            # 使用新的详细连肖检测
-            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
-            
-            # 使用新的详细连尾检测  
-            self._analyze_lhc_lianwei(account, lottery, period, group, results)
-            
-            # 新增：正码波色详细检测
-            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
-            
-            # 其他检测方法保持不变
-            self._analyze_lhc_tema(account, lottery, period, group, results)
-            self._analyze_lhc_two_sides(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma_1_6(account, lottery, period, group, results)
-            self._analyze_lhc_zhengte(account, lottery, period, group, results)
-            self._analyze_lhc_pingte(account, lottery, period, group, results)
-            self._analyze_lhc_texiao(account, lottery, period, group, results)
-            self._analyze_lhc_yixiao(account, lottery, period, group, results)
-            self._analyze_lhc_wave(account, lottery, period, group, results)
-            self._analyze_lhc_five_elements(account, lottery, period, group, results)
-            self._analyze_lhc_banbo(account, lottery, period, group, results)
         
         return results
     
-    def _analyze_lhc_tail_plays(self, df_target, results):
-        """分析六合彩尾数玩法的完整逻辑 - 从Colab版本移植"""
-        tail_categories = ['尾数', '尾数_头尾数', '特尾', '全尾']
-        
-        # 按不同尾数分类分别分析
-        for tail_category in tail_categories:
-            grouped = df_target[df_target['玩法分类'] == tail_category].groupby(
-                ['会员账号', '彩种', '期号']
-            )
-            
-            for (account, lottery, period), group in grouped:
-                # 使用字典按调整后的分类聚合尾数
-                category_tails = defaultdict(set)
-                category_contents = defaultdict(list)
-                
-                for _, row in group.iterrows():
-                    content = str(row['内容'])
-                    category = str(row['玩法分类'])
-                    
-                    # 新增：基于内容重新分类
-                    actual_category = self.normalize_play_category_from_content(content, category, 'LHC')
-                    
-                    clean_content = self.data_analyzer.parse_lhc_special_content(content)
-                    tails = self.data_analyzer.extract_tails_from_content(clean_content)
-                    category_tails[actual_category].update(tails)
-                    category_contents[actual_category].append(clean_content)
-                
-                # 对每个调整后的分类分别检查阈值
-                for actual_category, tails_set in category_tails.items():
-                    if len(tails_set) >= THRESHOLD_CONFIG['LHC']['tail_play']:
-                        # 根据不同的尾数分类，使用不同的结果键名
-                        if actual_category == '尾数':
-                            result_key = '尾数多码'
-                        elif actual_category == '尾数_头尾数':
-                            result_key = '尾数头尾多码'
-                        elif actual_category == '特尾':
-                            result_key = '特尾多尾'
-                        elif actual_category == '全尾':
-                            result_key = '全尾多尾'
-                        else:
-                            result_key = '尾数多码'
-                        
-                        # 构建投注内容显示 - 显示具体的尾数列表
-                        bet_content = ', '.join([f"{tail}尾" for tail in sorted(tails_set)])
-                        
-                        record = {
-                            '会员账号': account,
-                            '彩种': lottery,
-                            '期号': period,
-                            '玩法分类': f"{actual_category}（{', '.join([str(tail) for tail in sorted(tails_set)])}）",
-                            '尾数数量': len(tails_set),
-                            '号码数量': len(tails_set),  # 兼容字段
-                            '投注内容': bet_content,
-                            '排序权重': self._calculate_sort_weight({'尾数数量': len(tails_set)}, result_key)
-                        }
-                        self._add_unique_result(results, result_key, record)
-    
-    def _analyze_lhc_tema(self, account, lottery, period, group, results):
-        tema_group = group[group['玩法分类'] == '特码']
-        
-        all_numbers = set()
-        
-        for _, row in tema_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            numbers = self.data_analyzer.extract_numbers_from_content(
-                clean_content, 1, 49
-            )
-            all_numbers.update(numbers)
-        
-        if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '特码',
-                '号码数量': len(all_numbers),
-                '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
-                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '特码多码')
-            }
-            self._add_unique_result(results, '特码多码', record)
-    
-    def _analyze_lhc_two_sides(self, account, lottery, period, group, results):
-        two_sides_group = group[group['玩法分类'] == '两面']
-        
-        all_bets = {
-            'range_bet': set(),
-            'normal_size': set(),
-            'tail_size': set(),
-            'parity': set(),
-            'sum_parity': set(),
-            'animal_type': set(),
-            'zodiac': set(),
-            'wave': set()
-        }
-        
-        for _, row in two_sides_group.iterrows():
-            content = str(row['内容'])
-            
-            two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
-            
-            for bet_type in two_sides_analysis:
-                if bet_type in all_bets:
-                    all_bets[bet_type].update(two_sides_analysis[bet_type])
-        
-        # 区间多组 - 修复：显示具体的区间内容
-        if len(all_bets['range_bet']) >= THRESHOLD_CONFIG['LHC']['range_bet']:
-            # 将区间集合转换为排序后的列表
-            sorted_ranges = sorted(list(all_bets['range_bet']))
-            bet_content = ', '.join(sorted_ranges)
-            
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '两面',
-                '投注区间数': len(all_bets['range_bet']),
-                '投注区间': sorted_ranges,
-                '投注内容': bet_content,  # 添加投注内容字段
-                '排序权重': self._calculate_sort_weight({'投注区间数': len(all_bets['range_bet'])}, '区间多组')
-            }
-            self._add_unique_result(results, '区间多组', record)
-        
-        conflict_types = []
-        
-        if '大' in all_bets.get('normal_size', set()) and '小' in all_bets.get('normal_size', set()):
-            conflict_types.append('大小矛盾')
-        
-        if '尾大' in all_bets.get('tail_size', set()) and '尾小' in all_bets.get('tail_size', set()):
-            conflict_types.append('尾大小矛盾')
-        
-        if '单' in all_bets.get('parity', set()) and '双' in all_bets.get('parity', set()):
-            conflict_types.append('单双矛盾')
-        
-        if '合单' in all_bets.get('sum_parity', set()) and '合双' in all_bets.get('sum_parity', set()):
-            conflict_types.append('合数单双矛盾')
-        
-        if '家禽' in all_bets.get('animal_type', set()) and '野兽' in all_bets.get('animal_type', set()):
-            conflict_types.append('家禽野兽矛盾')
-        
-        if conflict_types:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '两面',
-                '矛盾类型': '、'.join(conflict_types),
-                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面玩法矛盾')
-            }
-            self._add_unique_result(results, '两面玩法矛盾', record)
-        
-        wave_set = all_bets.get('wave', set())
-        if len(wave_set) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '两面',
-                '投注波色数': len(wave_set),
-                '投注波色': sorted(list(wave_set)),
-                '排序权重': self._calculate_sort_weight({'投注波色数': len(wave_set)}, '波色三组')
-            }
-            self._add_unique_result(results, '波色三组', record)
-    
-    def _analyze_lhc_zhengma(self, account, lottery, period, group, results):
-        zhengma_group = group[group['玩法分类'] == '正码']
-        
-        all_numbers = set()
-        
-        for _, row in zhengma_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            numbers = self.data_analyzer.extract_numbers_from_content(
-                clean_content, 1, 49
-            )
-            all_numbers.update(numbers)
-        
-        if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '正码',
-                '号码数量': len(all_numbers),
-                '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
-                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正码多码')
-            }
-            self._add_unique_result(results, '正码多码', record)
-    
-    def _analyze_lhc_zhengma_1_6(self, account, lottery, period, group, results):
-        """六合彩正码1-6检测 - 增强位置判断"""
-        zhengma_1_6_group = group[group['玩法分类'] == '正码1-6']
-        
-        if zhengma_1_6_group.empty:
-            return
-        
-        position_bets = defaultdict(lambda: defaultdict(set))
-        
-        for _, row in zhengma_1_6_group.iterrows():
-            content = str(row['内容'])
-            
-            # 使用统一解析器
-            bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
-            
-            for position, bets in bets_by_position.items():
-                # 标准化位置名称
-                normalized_position = self._normalize_zhengma_position(position)
-                
-                for bet in bets:
-                    if bet == '合单':
-                        position_bets[normalized_position]['sum_parity'].add('合单')
-                    elif bet == '合双':
-                        position_bets[normalized_position]['sum_parity'].add('合双')
-                    # 可以添加其他投注类型的解析
-            
-            # 检查每个位置的矛盾
-            for position, bets_by_type in position_bets.items():
-                conflicts = []
-                
-                # 合数单双矛盾
-                sum_parity_bets = bets_by_type.get('sum_parity', set())
-                if '合单' in sum_parity_bets and '合双' in sum_parity_bets:
-                    conflicts.append('合数单双矛盾')
-                
-                if conflicts:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': '正码1-6',
-                        '位置': position,
-                        '矛盾类型': '、'.join(conflicts),
-                        '投注内容': f"{position}-{','.join(sorted(sum_parity_bets))}",
-                        '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正码1-6矛盾')
-                    }
-                    self._add_unique_result(results, '正码1-6矛盾', record)
-    
-    def _normalize_zhengma_position(self, position):
-        """标准化正码位置名称 - 修复版本"""
-        position_mapping = {
-            # 中文标准格式
-            '正码一': '正码一', '正1': '正码一', '正码1': '正码一',
-            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', 
-            '正码三': '正码三', '正3': '正码三', '正码3': '正码三',
-            '正码四': '正码四', '正4': '正码四', '正码4': '正码四',
-            '正码五': '正码五', '正5': '正码五', '正码5': '正码五',
-            '正码六': '正码六', '正6': '正码六', '正码6': '正码六',
-            # 处理可能的数字格式
-            '1': '正码一', '2': '正码二', '3': '正码三',
-            '4': '正码四', '5': '正码五', '6': '正码六',
-            # 默认映射
-            '未知位置': '正码一'
-        }
-        
-        position = position.strip()
-        
-        # 直接映射
-        if position in position_mapping:
-            return position_mapping[position]
-        
-        # 模糊匹配
-        for key, value in position_mapping.items():
-            if key in position:
-                return value
-        
-        # 如果包含数字，尝试提取数字并映射
-        import re
-        digit_match = re.search(r'\d', position)
-        if digit_match:
-            digit = digit_match.group()
-            if digit in position_mapping:
-                return position_mapping[digit]
-        
-        # 返回原位置，但确保至少是中文格式
-        return position
-    
-    def _analyze_lhc_zhengte(self, account, lottery, period, group, results):
-        zhengte_categories = ['正特', '正1特', '正2特', '正3特', '正4特', '正5特', '正6特']
-        
-        for category in zhengte_categories:
-            category_group = group[group['玩法分类'] == category]
-            
-            all_numbers = set()
-            all_bets = defaultdict(set)
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                clean_content = self.data_analyzer.parse_lhc_special_content(content)
-                
-                numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
-                all_numbers.update(numbers)
-                
-                two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
-                for bet_type, bets in two_sides_analysis.items():
-                    all_bets[bet_type].update(bets)
-            
-            if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': category,
-                    '号码数量': len(all_numbers),
-                    '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正特多码')
-                }
-                self._add_unique_result(results, '正特多码', record)
-            
-            conflicts = []
-            wave_set = all_bets.get('wave', set())
-            
-            if '大' in all_bets.get('normal_size', set()) and '小' in all_bets.get('normal_size', set()):
-                conflicts.append('大小矛盾')
-            if '单' in all_bets.get('parity', set()) and '双' in all_bets.get('parity', set()):
-                conflicts.append('单双矛盾')
-            if len(wave_set) >= THRESHOLD_CONFIG['LHC']['wave_bet']:
-                conflicts.append('波色多组投注')
-            
-            if conflicts:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': category,
-                    '矛盾类型': '、'.join(conflicts),
-                    '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正特矛盾')
-                }
-                self._add_unique_result(results, '正特矛盾', record)
-    
-    def _analyze_lhc_pingte(self, account, lottery, period, group, results):
-        pingte_group = group[group['玩法分类'] == '平特']
-        
-        all_zodiacs = set()
-        
-        for _, row in pingte_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            zodiacs = self.data_analyzer.extract_zodiacs_from_content(clean_content)
-            all_zodiacs.update(zodiacs)
-        
-        if len(all_zodiacs) >= THRESHOLD_CONFIG['LHC']['zodiac_play']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '平特',
-                '生肖数量': len(all_zodiacs),
-                '投注内容': ', '.join(sorted(all_zodiacs)),
-                '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, '平特多肖')
-            }
-            self._add_unique_result(results, '平特多肖', record)
-    
-    def _analyze_lhc_texiao(self, account, lottery, period, group, results):
-        texiao_group = group[group['玩法分类'] == '特肖']
-        
-        all_zodiacs = set()
-        
-        for _, row in texiao_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            zodiacs = self.data_analyzer.extract_zodiacs_from_content(clean_content)
-            all_zodiacs.update(zodiacs)
-        
-        if len(all_zodiacs) >= THRESHOLD_CONFIG['LHC']['zodiac_play']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '特肖',
-                '生肖数量': len(all_zodiacs),
-                '投注内容': ', '.join(sorted(all_zodiacs)),
-                '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, '特肖多肖')
-            }
-            self._add_unique_result(results, '特肖多肖', record)
-    
-    def _analyze_lhc_yixiao(self, account, lottery, period, group, results):
-        yixiao_group = group[group['玩法分类'] == '一肖']
-        
-        all_zodiacs = set()
-        
-        for _, row in yixiao_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            zodiacs = self.data_analyzer.extract_zodiacs_from_content(clean_content)
-            all_zodiacs.update(zodiacs)
-        
-        if len(all_zodiacs) >= THRESHOLD_CONFIG['LHC']['zodiac_play']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '一肖',
-                '生肖数量': len(all_zodiacs),
-                '投注内容': ', '.join(sorted(all_zodiacs)),
-                '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, '一肖多肖')
-            }
-            self._add_unique_result(results, '一肖多肖', record)
-    
-    def _analyze_lhc_wave(self, account, lottery, period, group, results):
-        """六合彩色波检测 - 包含半波内容检测，七色波就是色波"""
-        wave_group = group[group['玩法分类'] == '色波']
-        
-        if wave_group.empty:
-            return
-        
-        # 收集所有波色投注和半波投注
-        all_wave_bets = set()
-        all_banbo_bets = set()  # 半波投注
-        
-        # 定义半波投注项
-        banbo_items = {
-            '红大', '红小', '红单', '红双',
-            '蓝大', '蓝小', '蓝单', '蓝双', 
-            '绿大', '绿小', '绿单', '绿双'
-        }
-        
-        for _, row in wave_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            
-            # 提取传统波色
-            waves = self.data_analyzer.extract_wave_color_from_content(clean_content)
-            all_wave_bets.update(waves)
-            
-            # 提取半波投注项
-            for item in banbo_items:
-                if item in clean_content:
-                    all_banbo_bets.add(item)
-        
-        # 检测1: 传统色波全包（红波、蓝波、绿波）- 七色波就是色波
-        traditional_waves = {'红波', '蓝波', '绿波'}
-        if traditional_waves.issubset(all_wave_bets):
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '色波',
-                '违规类型': '色波全包',
-                '投注波色数': len(traditional_waves),
-                '投注波色': sorted(list(traditional_waves)),
-                '投注内容': f"色波全包: {', '.join(sorted(traditional_waves))}",
-                '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '色波全包')
-            }
-            self._add_unique_result(results, '色波全包', record)
-        
-        # 检测2: 色波玩法中的半波全包检测
-        # 大小全包检测
-        size_full_set = {'红大', '红小', '蓝大', '蓝小', '绿大', '绿小'}
-        if size_full_set.issubset(all_banbo_bets):
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '色波',
-                '违规类型': '色波中半波大小全包',
-                '投注半波数': len(size_full_set),
-                '投注半波': sorted(list(size_full_set)),
-                '投注内容': ', '.join(sorted(size_full_set)),
-                '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '色波中半波大小全包')
-            }
-            self._add_unique_result(results, '色波中半波全包', record)
-        
-        # 单双全包检测
-        parity_full_set = {'红单', '红双', '蓝单', '蓝双', '绿单', '绿双'}
-        if parity_full_set.issubset(all_banbo_bets):
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '色波',
-                '违规类型': '色波中半波单双全包',
-                '投注半波数': len(parity_full_set),
-                '投注半波': sorted(list(parity_full_set)),
-                '投注内容': ', '.join(sorted(parity_full_set)),
-                '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '色波中半波单双全包')
-            }
-            self._add_unique_result(results, '色波中半波全包', record)
-    
-    def _analyze_lhc_five_elements(self, account, lottery, period, group, results):
-        five_elements_group = group[group['玩法分类'] == '五行']
-        
-        all_elements = set()
-        
-        for _, row in five_elements_group.iterrows():
-            content = str(row['内容'])
-            clean_content = self.data_analyzer.parse_lhc_special_content(content)
-            elements = self.data_analyzer.extract_five_elements_from_content(clean_content)
-            all_elements.update(elements)
-        
-        if len(all_elements) >= THRESHOLD_CONFIG['LHC']['five_elements']:
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '五行',
-                '投注五行数': len(all_elements),
-                '投注五行': sorted(list(all_elements)),
-                '排序权重': self._calculate_sort_weight({'投注五行数': len(all_elements)}, '五行多组')
-            }
-            self._add_unique_result(results, '五行多组', record)
-    
-    def _analyze_lhc_lianxiao(self, account, lottery, period, group, results):
-        """分析六合彩连肖玩法 - 修复版本，确保区分具体类型"""
-        # 定义连肖类型及其对应的阈值
-        lianxiao_config = {
-            '二连肖': {'threshold': 7},
-            '三连肖': {'threshold': 7},  
-            '四连肖': {'threshold': 7},
-            '五连肖': {'threshold': 8},
-        }
-        
-        # 首先检查具体的连肖类型
-        for lianxiao_type, config in lianxiao_config.items():
-            lianxiao_group = group[group['玩法分类'] == lianxiao_type]
-            
-            for _, row in lianxiao_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 解析玩法-投注内容格式
-                if '-' in content:
-                    parts = content.split('-', 1)
-                    bet_content = parts[1].strip()
-                else:
-                    bet_content = content
-                    
-                zodiacs = self.data_analyzer.extract_zodiacs_from_content(bet_content)
-                
-                # 使用针对具体连肖类型的阈值
-                if len(zodiacs) >= config['threshold']:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': f"{lianxiao_type}（{len(zodiacs)}生肖）",
-                        '违规类型': f'{lianxiao_type}多肖',
-                        '生肖数量': len(zodiacs),
-                        '投注内容': ', '.join(sorted(zodiacs)),
-                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{lianxiao_type}多肖')
-                    }
-                    self._add_unique_result(results, f'{lianxiao_type}多肖', record)
-        
-        # 然后检查通用的连肖类型（作为后备）
-        generic_lianxiao_group = group[group['玩法分类'] == '连肖']
-        if not generic_lianxiao_group.empty:
-            # 尝试从内容中推断具体类型
-            for _, row in generic_lianxiao_group.iterrows():
-                content = str(row['内容'])
-                
-                # 从内容中推断具体连肖类型
-                inferred_type = self._infer_lianxiao_type_from_content(content)
-                
-                # 解析玩法-投注内容格式
-                if '-' in content:
-                    parts = content.split('-', 1)
-                    bet_content = parts[1].strip()
-                else:
-                    bet_content = content
-                    
-                zodiacs = self.data_analyzer.extract_zodiacs_from_content(bet_content)
-                
-                # 根据推断的类型使用相应的阈值，如果没有推断出类型则使用通用阈值
-                if inferred_type and inferred_type in lianxiao_config:
-                    threshold = lianxiao_config[inferred_type]['threshold']
-                    display_type = inferred_type
-                else:
-                    threshold = 6  # 通用阈值
-                    display_type = '连肖'
-                
-                if len(zodiacs) >= threshold:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': f"{display_type}（{len(zodiacs)}生肖）",
-                        '违规类型': f'{display_type}多肖',
-                        '生肖数量': len(zodiacs),
-                        '投注内容': ', '.join(sorted(zodiacs)),
-                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{display_type}多肖')
-                    }
-                    self._add_unique_result(results, f'{display_type}多肖', record)
-    
-    def _infer_lianxiao_type_from_content(self, content):
-        """从内容中推断连肖类型"""
-        content_str = str(content)
-        
-        # 从内容中查找具体类型
-        if '二连肖' in content_str:
-            return '二连肖'
-        elif '三连肖' in content_str:
-            return '三连肖'
-        elif '四连肖' in content_str:
-            return '四连肖'
-        elif '五连肖' in content_str:
-            return '五连肖'
-        
-        return None
-    
-    def _analyze_lhc_lianwei(self, account, lottery, period, group, results):
-        """分析六合彩连尾玩法 - 修复版本，确保区分具体类型"""
-        # 定义连尾类型及其对应的阈值
-        lianwei_config = {
-            '二连尾': {'threshold': 7},
-            '三连尾': {'threshold': 7},
-            '四连尾': {'threshold': 7},  
-            '五连尾': {'threshold': 8},
-        }
-        
-        # 首先检查具体的连尾类型
-        for lianwei_type, config in lianwei_config.items():
-            lianwei_group = group[group['玩法分类'] == lianwei_type]
-            
-            for _, row in lianwei_group.iterrows():
-                content = str(row['内容'])
-                tails = self.data_analyzer.extract_tails_from_content(content)
-                
-                # 使用针对具体连尾类型的阈值
-                if len(tails) >= config['threshold']:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': f"{lianwei_type}（{len(tails)}尾）",
-                        '违规类型': f'{lianwei_type}多尾',
-                        '尾数数量': len(tails),
-                        '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
-                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{lianwei_type}多尾')
-                    }
-                    self._add_unique_result(results, f'{lianwei_type}多尾', record)
-        
-        # 然后检查通用的连尾类型（作为后备）
-        generic_lianwei_group = group[group['玩法分类'] == '连尾']
-        if not generic_lianwei_group.empty:
-            # 尝试从内容中推断具体类型
-            for _, row in generic_lianwei_group.iterrows():
-                content = str(row['内容'])
-                
-                # 从内容中推断具体连尾类型
-                inferred_type = self._infer_lianwei_type_from_content(content)
-                
-                tails = self.data_analyzer.extract_tails_from_content(content)
-                
-                # 根据推断的类型使用相应的阈值，如果没有推断出类型则使用通用阈值
-                if inferred_type and inferred_type in lianwei_config:
-                    threshold = lianwei_config[inferred_type]['threshold']
-                    display_type = inferred_type
-                else:
-                    threshold = 6  # 通用阈值
-                    display_type = '连尾'
-                
-                if len(tails) >= threshold:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': f"{display_type}（{len(tails)}尾）",
-                        '违规类型': f'{display_type}多尾',
-                        '尾数数量': len(tails),
-                        '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
-                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{display_type}多尾')
-                    }
-                    self._add_unique_result(results, f'{display_type}多尾', record)
-    
-    def _infer_lianwei_type_from_content(self, content):
-        """从内容中推断连尾类型"""
-        content_str = str(content)
-        
-        # 从内容中查找具体类型
-        if '二连尾' in content_str:
-            return '二连尾'
-        elif '三连尾' in content_str:
-            return '三连尾'
-        elif '四连尾' in content_str:
-            return '四连尾'
-        elif '五连尾' in content_str:
-            return '五连尾'
-        
-        return None
-    
-    def _analyze_lhc_zhengte_detailed(self, account, lottery, period, group, results):
-        """六合彩正码特详细检测"""
-        zhengte_categories = ['正1特', '正2特', '正3特', '正4特', '正5特', '正6特']
-        
-        for category in zhengte_categories:
-            category_group = group[group['玩法分类'] == category]
-            
-            all_numbers = set()
-            all_bets = defaultdict(set)
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 新增：基于内容重新分类
-                actual_category = self.normalize_play_category_from_content(content, category, 'LHC')
-                
-                clean_content = self.data_analyzer.parse_lhc_special_content(content)
-                
-                # 提取数字
-                numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
-                all_numbers.update(numbers)
-                
-                # 提取两面玩法内容
-                two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
-                for bet_type, bets in two_sides_analysis.items():
-                    all_bets[bet_type].update(bets)
-            
-            # 多号码检测
-            if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': category,
-                    '号码数量': len(all_numbers),
-                    '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正特多码')
-                }
-                self._add_unique_result(results, '正特多码', record)
-            
-            # 矛盾投注检测
-            conflicts = []
-            if '大' in all_bets.get('normal_size', set()) and '小' in all_bets.get('normal_size', set()):
-                conflicts.append('大小矛盾')
-            if '单' in all_bets.get('parity', set()) and '双' in all_bets.get('parity', set()):
-                conflicts.append('单双矛盾')
-            if '尾大' in all_bets.get('tail_size', set()) and '尾小' in all_bets.get('tail_size', set()):
-                conflicts.append('尾大小矛盾')
-            if '合单' in all_bets.get('sum_parity', set()) and '合双' in all_bets.get('sum_parity', set()):
-                conflicts.append('合数单双矛盾')
-            
-            if conflicts:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': category,
-                    '矛盾类型': '、'.join(conflicts),
-                    '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正特矛盾')
-                }
-                self._add_unique_result(results, '正特矛盾', record)
-    
-    def _analyze_lhc_lianxiao_lianwei_detailed(self, account, lottery, period, group, results):
-        """连肖连尾细分检测"""
-        # 连肖细分
-        lianxiao_categories = {
-            '连肖连尾_二连肖': 2,
-            '连肖连尾_三连肖': 3, 
-            '连肖连尾_四连肖': 4,
-            '连肖连尾_五连肖': 5
-        }
-        
-        for category, threshold in lianxiao_categories.items():
-            category_group = group[group['玩法分类'] == category]
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 新增：基于内容重新分类
-                actual_category = self.normalize_play_category_from_content(content, category, 'LHC')
-                
-                zodiacs = self.data_analyzer.extract_zodiacs_from_content(content)
-                
-                # 超过阈值检测
-                if len(zodiacs) > threshold + 2:  # 允许一定的冗余
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': category,
-                        '生肖数量': len(zodiacs),
-                        '投注内容': ', '.join(sorted(zodiacs)),
-                        '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, '连肖多肖')
-                    }
-                    self._add_unique_result(results, '连肖多肖', record)
-        
-        # 连尾细分
-        lianwei_categories = {
-            '连肖连尾_二连尾': 2,
-            '连肖连尾_三连尾': 3,
-            '连肖连尾_四连尾': 4,
-            '连肖连尾_五连尾': 5
-        }
-        
-        for category, threshold in lianwei_categories.items():
-            category_group = group[group['玩法分类'] == category]
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                tails = self.data_analyzer.extract_tails_from_content(content)
-                
-                if len(tails) > threshold + 2:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': category,
-                        '尾数数量': len(tails),
-                        '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
-                        '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, '连尾多尾')
-                    }
-                    self._add_unique_result(results, '连尾多尾', record)
-    
-    def _analyze_lhc_banbo(self, account, lottery, period, group, results):
-        """六合彩半波检测 - 检测大小全包和单双全包，包括蓝波、绿波、红波玩法"""
-        # 扩展半波相关的玩法分类
-        banbo_categories = ['半波', '蓝波', '绿波', '红波']
-        
-        banbo_group = group[group['玩法分类'].isin(banbo_categories)]
-        
-        if banbo_group.empty:
-            return
-        
-        # 定义两组半波全包
-        size_full_set = {'红大', '红小', '蓝大', '蓝小', '绿大', '绿小'}  # 大小全包
-        parity_full_set = {'红单', '红双', '蓝单', '蓝双', '绿单', '绿双'}  # 单双全包
-        
-        all_banbo_bets = set()
-        
-        for _, row in banbo_group.iterrows():
-            content = str(row['内容'])
-            
-            # 解析玩法-投注内容格式
-            if '-' in content:
-                parts = content.split('-', 1)
-                bet_content = parts[1].strip()  # 只使用投注内容部分
-            else:
-                bet_content = content
-            
-            # 提取所有半波投注项
-            for bet in size_full_set.union(parity_full_set):
-                if bet in bet_content:
-                    all_banbo_bets.add(bet)
-        
-        # 检测大小全包
-        if size_full_set.issubset(all_banbo_bets):
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '半波',
-                '投注半波数': len(size_full_set),
-                '投注半波': sorted(list(size_full_set)),
-                '投注内容': ', '.join(sorted(size_full_set)),
-                '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '半波大小全包')
-            }
-            self._add_unique_result(results, '半波大小全包', record)
-        
-        # 检测单双全包
-        if parity_full_set.issubset(all_banbo_bets):
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '半波',
-                '投注半波数': len(parity_full_set),
-                '投注半波': sorted(list(parity_full_set)),
-                '投注内容': ', '.join(sorted(parity_full_set)),
-                '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '半波单双全包')
-            }
-            self._add_unique_result(results, '半波单双全包', record)
-
-    def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 精确版本"""
-        # 正码相关的玩法分类
-        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
-        
-        zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
-        
-        if zhengma_group.empty:
-            return
-        
-        # 收集每个位置的波色投注
-        position_waves = defaultdict(set)
-        
-        for _, row in zhengma_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 使用统一解析器解析正码内容
-            bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
-            
-            for position, bets in bets_by_position.items():
-                # 标准化位置名称
-                normalized_position = self._normalize_zhengma_position(position)
-                
-                # 检查每个投注项的波色
-                for bet in bets:
-                    # 使用增强的波色提取方法
-                    waves = self._extract_wave_from_zhengma_bet(bet)
-                    position_waves[normalized_position].update(waves)
-        
-        # 检查每个位置的波色全包情况
-        traditional_waves = {'红波', '蓝波', '绿波'}
-        for position, waves in position_waves.items():
-            # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
-            if traditional_waves.issubset(waves):
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': f'{position}波色',
-                    '违规类型': f'{position}波色全包',
-                    '投注波色数': len(traditional_waves),
-                    '投注波色': sorted(list(traditional_waves)),
-                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
-                    '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
-                }
-                self._add_unique_result(results, f'{position}波色全包', record)
-        
-    
-    def _extract_wave_from_zhengma_bet(self, bet_content):
-        """从正码投注内容中精确提取波色"""
-        bet_str = str(bet_content).strip()
-        waves = set()
-        
-        # 精确匹配波色关键词
-        wave_keywords = {
-            '红波': ['红波', '紅色波', '红'],
-            '蓝波': ['蓝波', '藍波', '蓝', '藍'], 
-            '绿波': ['绿波', '綠波', '绿', '綠']
-        }
-        
-        for wave_name, keywords in wave_keywords.items():
-            for keyword in keywords:
-                # 精确匹配，避免部分匹配
-                if keyword == bet_str or f"-{keyword}" in bet_str or f"{keyword}," in bet_str:
-                    waves.add(wave_name)
-                    break
-        
-        return waves
-
-    # =============== 3D系列分析方法 ===============
-    def analyze_3d_patterns(self, df):
-        """分析3D系列投注模式"""
+    def _analyze_ssc_douniu(self, account, lottery, period, group, play_category):
+        """时时彩斗牛分析"""
         results = defaultdict(list)
         
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == '3D']
-        
-        if len(df_target) == 0:
-            return results
-        
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        
-        for (account, lottery, period), group in grouped:
-            self._analyze_3d_two_sides(account, lottery, period, group, results)
-            self._analyze_3d_dingwei(account, lottery, period, group, results)
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            bull_types = self.data_analyzer.extract_douniu_types(content)
+            
+            if len(bull_types) >= THRESHOLD_CONFIG['SSC']['douniu_multi']:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': play_category,
+                    '号码数量': len(bull_types),
+                    '投注内容': ', '.join(sorted(bull_types)),
+                    '排序权重': self._calculate_sort_weight({'号码数量': len(bull_types)}, '斗牛多码')
+                }
+                self._add_unique_result(results, '斗牛多码', record)
         
         return results
-    
-    def _analyze_3d_two_sides(self, account, lottery, period, group, results):
-        """分析3D两面玩法矛盾 - 增强竖线格式支持"""
-        two_sides_group = group[group['玩法分类'] == '两面']
+
+    # ==================== 3D分析方法 ====================
+    def _analyze_3d_play_category(self, account, lottery, period, group, play_category):
+        """3D玩法分类分析"""
+        results = defaultdict(list)
         
-        if two_sides_group.empty:
-            return
+        # 3D玩法路由
+        three_d_analysis_methods = {
+            '两面': self._analyze_3d_two_sides,
+            '大小单双': self._analyze_3d_two_sides,
+            '定位胆': self._analyze_3d_dingwei,
+            '定位胆_百位': self._analyze_3d_position,
+            '定位胆_十位': self._analyze_3d_position,
+            '定位胆_个位': self._analyze_3d_position,
+            '百位': self._analyze_3d_position,
+            '十位': self._analyze_3d_position,
+            '个位': self._analyze_3d_position
+        }
+        
+        if play_category in three_d_analysis_methods:
+            method = three_d_analysis_methods[play_category]
+            return method(account, lottery, period, group, play_category)
+        
+        return defaultdict(list)
+    
+    def _analyze_3d_two_sides(self, account, lottery, period, group, play_category):
+        """3D两面玩法分析"""
+        results = defaultdict(list)
         
         # 按位置分类收集投注
         position_bets = defaultdict(set)
         
-        for _, row in two_sides_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             
             # 首先尝试解析竖线格式
@@ -3554,7 +3209,7 @@ class AnalysisEngine:
                             if bet in part:
                                 position_bets[current_position].add(bet)
         
-        # 检查每个位置的矛盾（保持原有逻辑不变）
+        # 检查每个位置的矛盾
         for position, bet_options in position_bets.items():
             conflicts = []
             
@@ -3581,28 +3236,26 @@ class AnalysisEngine:
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': '两面',
+                    '玩法分类': play_category,
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
                     '投注内容': f"{position}:{','.join(sorted(bet_options))}",
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
                 }
                 self._add_unique_result(results, '两面矛盾', record)
-    
-    def _analyze_3d_dingwei(self, account, lottery, period, group, results):
-        """分析3D定位胆多码 - 增强竖线格式支持"""
-        dingwei_categories = ['定位胆', '定位胆_百位', '定位胆_十位', '定位胆_个位']
         
-        dingwei_group = group[group['玩法分类'].isin(dingwei_categories)]
+        return results
+    
+    def _analyze_3d_dingwei(self, account, lottery, period, group, play_category):
+        """3D定位胆分析"""
+        results = defaultdict(list)
         
         position_numbers = defaultdict(set)
         
-        # 修复这里的缩进：整个for循环应该缩进
-        for _, row in dingwei_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
-            category = str(row['玩法分类'])
             
-            # 首先使用统一解析器解析竖线格式
+            # 使用统一解析器解析3D内容
             bets_by_position = self.data_analyzer.parse_3d_content(content)
             if bets_by_position:
                 # 如果有解析结果，使用解析出的位置和号码
@@ -3610,27 +3263,16 @@ class AnalysisEngine:
                     position_numbers[position].update(numbers)
                 continue
             
-            # 新增：基于内容重新分类（在原有逻辑之前）
-            actual_category = self.normalize_play_category_from_content(content, category, '3D')
-            
             # 如果没有竖线格式，使用原有逻辑
             # 确定位置
-            if '百位' in actual_category:  # 这里要用 actual_category，不是 category
+            if '百位' in content:
                 position = '百位'
-            elif '十位' in actual_category:  # 这里也要用 actual_category
+            elif '十位' in content:
                 position = '十位'
-            elif '个位' in actual_category:  # 这里也要用 actual_category
+            elif '个位' in content:
                 position = '个位'
             else:
-                # 从内容推断位置
-                if '百位' in content:
-                    position = '百位'
-                elif '十位' in content:
-                    position = '十位'
-                elif '个位' in content:
-                    position = '个位'
-                else:
-                    position = '未知位置'
+                position = '未知位置'
             
             # 提取号码
             numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
@@ -3638,366 +3280,125 @@ class AnalysisEngine:
         
         # 检查每个位置的超码
         for position, numbers in position_numbers.items():
-            if len(numbers) >= THRESHOLD_CONFIG['3D']['dingwei_multi']:
+            threshold = self.threshold_manager.get_threshold('3D', '定位胆', 'dingwei_multi')
+            if len(numbers) >= threshold:
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': '定位胆',
+                    '玩法分类': play_category,
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
                 }
                 self._add_unique_result(results, '定位胆多码', record)
-
-    # =============== 快三分析方法 ===============
-    def analyze_k3_patterns(self, df):
-        """分析快三投注模式"""
-        results = defaultdict(list)
-        
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'K3']
-        
-        if len(df_target) == 0:
-            return results
-        
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        
-        for (account, lottery, period), group in grouped:
-            self._analyze_k3_hezhi_enhanced(account, lottery, period, group, results)
-            # 先进行聚合检测（更严格的检测）
-            self._analyze_k3_dudan_aggregated(account, lottery, period, group, results)
-            # 如果聚合检测没有发现问题，再进行单个记录检测
-            if not any('独胆多码' in key for key in results.keys()):
-                self._analyze_k3_dudan(account, lottery, period, group, results)
-            self._analyze_k3_different(account, lottery, period, group, results)
-            self._analyze_k3_two_sides_plays(account, lottery, period, group, results)
         
         return results
     
-    def _analyze_k3_hezhi_enhanced(self, account, lottery, period, group, results):
-        """分析快三和值玩法 - 优化版，优先展示数量最多的矛盾组合"""
-        hezhi_categories = ['和值', '和值_大小单双']
-        
-        hezhi_group = group[group['玩法分类'].isin(hezhi_categories)]
-        
-        if hezhi_group.empty:
-            return
+    def _analyze_3d_position(self, account, lottery, period, group, play_category):
+        """3D位置分析"""
+        results = defaultdict(list)
         
         all_numbers = set()
-        all_contents = []
-        has_big = False
-        has_small = False
-        has_single = False
-        has_double = False
         
-        for _, row in hezhi_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
-            category = str(row['玩法分类'])
             
-            # 提取数字
-            numbers = self.data_analyzer.extract_numbers_from_content(
-                content,
-                LOTTERY_CONFIGS['K3']['hezhi_min'],
-                LOTTERY_CONFIGS['K3']['hezhi_max']
-            )
-            all_numbers.update(numbers)
-            all_contents.append(content)
+            # 使用统一解析器解析3D内容
+            bets_by_position = self.data_analyzer.parse_3d_content(content)
             
-            # 检查大小单双
-            content_lower = content.lower()
-            if '大' in content_lower:
-                has_big = True
-            if '小' in content_lower:
-                has_small = True
-            if '单' in content_lower:
-                has_single = True
-            if '双' in content_lower:
-                has_double = True
+            for position, numbers in bets_by_position.items():
+                # 如果解析出的位置匹配当前玩法分类，则收集号码
+                if self._is_3d_position_match(position, play_category):
+                    all_numbers.update(numbers)
         
-        # 和值多码检测（11码或以上）- 优先记录
-        if len(all_numbers) >= THRESHOLD_CONFIG['K3']['hezhi_multi_number']:
-            bet_content = ', '.join([str(num) for num in sorted(all_numbers)])
-            
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '和值',
-                '号码数量': len(all_numbers),
-                '投注内容': bet_content,
-                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '和值多码')
-            }
-            self._add_unique_result(results, '和值多码', record)
-            return  # 避免重复记录
-        
-        # 和值矛盾检测（大小单双同时下注）- 这是和值矛盾
-        conflict_types = []
-        if has_big and has_small:
-            conflict_types.append('大小')
-        if has_single and has_double:
-            conflict_types.append('单双')
-        
-        if conflict_types:
-            bet_content_parts = []
-            if has_big:
-                bet_content_parts.append('大')
-            if has_small:
-                bet_content_parts.append('小')
-            if has_single:
-                bet_content_parts.append('单')
-            if has_double:
-                bet_content_parts.append('双')
-            bet_content = ', '.join(bet_content_parts)
-            
-            # 这是和值矛盾，不是和值大小矛盾
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '和值',
-                '矛盾类型': '、'.join(conflict_types),
-                '投注内容': bet_content,
-                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '和值矛盾')
-            }
-            self._add_unique_result(results, '和值矛盾', record)
-        
-        # 和值大小矛盾检测 - 这是和值大小矛盾（投注方向与号码分布矛盾）
-        if all_numbers and len(all_numbers) < THRESHOLD_CONFIG['K3']['hezhi_multi_number']:
-            small_values = [num for num in all_numbers if 3 <= num <= 10]
-            big_values = [num for num in all_numbers if 11 <= num <= 18]
-            single_values = [num for num in all_numbers if num % 2 == 1]
-            double_values = [num for num in all_numbers if num % 2 == 0]
-            
-            # 收集所有可能的矛盾
-            possible_contradictions = []
-            
-            # 投注小但包含多个大号码（4个或以上）
-            if has_small and len(big_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradiction_value = len(big_values)
-                description = f"投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
-                possible_contradictions.append(('大小矛盾', description, contradiction_value))
-            
-            # 投注大但包含多个小号码（4个或以上）
-            if has_big and len(small_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradiction_value = len(small_values)
-                description = f"投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
-                possible_contradictions.append(('大小矛盾', description, contradiction_value))
-            
-            # 投注单但包含多个双号码（4个或以上）
-            if has_single and len(double_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradiction_value = len(double_values)
-                description = f"投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
-                possible_contradictions.append(('单双矛盾', description, contradiction_value))
-            
-            # 投注双但包含多个单号码（4个或以上）
-            if has_double and len(single_values) >= THRESHOLD_CONFIG['K3']['value_size_contradiction']:
-                contradiction_value = len(single_values)
-                description = f"投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
-                possible_contradictions.append(('单双矛盾', description, contradiction_value))
-            
-            # 优先展示数量最多的矛盾组合
-            if possible_contradictions:
-                # 按矛盾值降序排序
-                possible_contradictions.sort(key=lambda x: x[2], reverse=True)
-                
-                # 选择矛盾值最大的那个
-                best_contradiction = possible_contradictions[0]
-                contradiction_type, contradiction_desc, contradiction_value = best_contradiction
-                
-                # 这是和值大小矛盾，与和值矛盾不同
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '和值',
-                    '矛盾类型': contradiction_desc,
-                    '矛盾值': contradiction_value,
-                    '大号码数量': len(big_values),
-                    '小号码数量': len(small_values),
-                    '单号码数量': len(single_values),
-                    '双号码数量': len(double_values),
-                    '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值大小矛盾')
-                }
-                self._add_unique_result(results, '和值大小矛盾', record)
-
-    def _analyze_k3_dudan(self, account, lottery, period, group, results):
-        """分析快三独胆玩法 - 单个记录检测"""
-        dudan_group = group[group['玩法分类'] == '独胆']
-        
-        for _, row in dudan_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
-            
-            # 检测单个记录的多号码（通常不会触发，因为三军是分开投注的）
-            if len(numbers) >= 5:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '独胆',
-                    '号码数量': len(numbers),
-                    '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '独胆多码')
-                }
-                self._add_unique_result(results, '独胆多码', record)
-    
-    def _analyze_k3_dudan_aggregated(self, account, lottery, period, group, results):
-        """分析快三独胆玩法 - 按账户期号聚合检测"""
-        dudan_group = group[group['玩法分类'] == '独胆']
-        
-        if dudan_group.empty:
-            return
-        
-        # 聚合同一账户同一期号的所有独胆投注
-        all_numbers = set()
-        
-        for _, row in dudan_group.iterrows():
-            content = str(row['内容'])
-            numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
-            all_numbers.update(numbers)
-        
-        # 使用配置的阈值
-        threshold = THRESHOLD_CONFIG['K3'].get('dudan_multi_number', 3)
+        # 多码检测
+        threshold = self.threshold_manager.get_threshold('3D', play_category, 'dingwei_multi')
         if len(all_numbers) >= threshold:
             record = {
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '独胆',
+                '玩法分类': play_category,
+                '位置': play_category,
                 '号码数量': len(all_numbers),
-                '投注内容': f"聚合投注: {', '.join([str(num) for num in sorted(all_numbers)])}",
-                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '独胆多码')
+                '投注内容': f"{play_category}-{','.join([str(num) for num in sorted(all_numbers)])}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '定位胆多码')
             }
-            self._add_unique_result(results, '独胆多码', record)
-    
-    def _analyze_k3_different(self, account, lottery, period, group, results):
-        different_categories = ['二不同号', '三不同号']
-        
-        for category in different_categories:
-            category_group = group[group['玩法分类'] == category]
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                numbers = self.data_analyzer.extract_numbers_from_content(content, 1, 6)
-                
-                if len(numbers) == 6:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': category,
-                        '号码数量': len(numbers),
-                        '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
-                        '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '不同号全包')
-                    }
-                    self._add_unique_result(results, '不同号全包', record)
-    
-    def _analyze_k3_two_sides_plays(self, account, lottery, period, group, results):
-        """快三两面玩法分析"""
-        two_sides_categories = ['两面']
-        
-        two_sides_group = group[group['玩法分类'].isin(two_sides_categories)]
-        
-        has_big = False
-        has_small = False
-        has_single = False
-        has_double = False
-        
-        for _, row in two_sides_group.iterrows():
-            content = str(row['内容'])
-            content_lower = content.lower()
-            
-            if '大' in content_lower:
-                has_big = True
-            if '小' in content_lower:
-                has_small = True
-            if '单' in content_lower:
-                has_single = True
-            if '双' in content_lower:
-                has_double = True
-        
-        conflict_types = []
-        if has_big and has_small:
-            conflict_types.append('大小')
-        if has_single and has_double:
-            conflict_types.append('单双')
-        
-        if conflict_types:
-            bet_content_parts = []
-            if has_big:
-                bet_content_parts.append('大')
-            if has_small:
-                bet_content_parts.append('小')
-            if has_single:
-                bet_content_parts.append('单')
-            if has_double:
-                bet_content_parts.append('双')
-            bet_content = ', '.join(bet_content_parts)
-            
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '两面',
-                '矛盾类型': '、'.join(conflict_types),
-                '投注内容': bet_content,
-                '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面矛盾')
-            }
-            self._add_unique_result(results, '两面矛盾', record)
-
-    # =============== 三色彩分析方法 ===============
-    def analyze_three_color_patterns(self, df):
-        """分析三色彩投注模式"""
-        results = defaultdict(list)
-        
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'THREE_COLOR']
-        
-        if len(df_target) == 0:
-            return results
-        
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        
-        for (account, lottery, period), group in grouped:
-            self._analyze_three_color_zhengma(account, lottery, period, group, results)
-            self._analyze_three_color_two_sides(account, lottery, period, group, results)
-            self._analyze_three_color_wave(account, lottery, period, group, results)
+            self._add_unique_result(results, '定位胆多码', record)
         
         return results
     
-    def _analyze_three_color_zhengma(self, account, lottery, period, group, results):
-        zhengma_group = group[group['玩法分类'] == '正码']
+    def _is_3d_position_match(self, position, play_category):
+        """检查3D位置是否匹配玩法分类"""
+        position_mapping = {
+            '定位胆_百位': ['百位'],
+            '定位胆_十位': ['十位'],
+            '定位胆_个位': ['个位']
+        }
+        
+        for key, values in position_mapping.items():
+            if play_category == key and position in values:
+                return True
+        
+        return play_category == position
+
+    # ==================== 三色彩分析方法 ====================
+    def _analyze_three_color_play_category(self, account, lottery, period, group, play_category):
+        """三色彩玩法分类分析"""
+        results = defaultdict(list)
+        
+        # 三色彩玩法路由
+        three_color_analysis_methods = {
+            '正码': self._analyze_three_color_zhengma,
+            '两面': self._analyze_three_color_two_sides,
+            '色波': self._analyze_three_color_wave,
+            '特码': self._analyze_three_color_tema
+        }
+        
+        if play_category in three_color_analysis_methods:
+            method = three_color_analysis_methods[play_category]
+            return method(account, lottery, period, group, play_category)
+        
+        return defaultdict(list)
+    
+    def _analyze_three_color_zhengma(self, account, lottery, period, group, play_category):
+        """三色彩正码分析"""
+        results = defaultdict(list)
         
         all_numbers = set()
         
-        for _, row in zhengma_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             numbers = self.data_analyzer.extract_numbers_from_content(content, 0, 9)
             all_numbers.update(numbers)
         
-        if len(all_numbers) >= THRESHOLD_CONFIG['THREE_COLOR']['zhengma_multi']:
+        threshold = self.threshold_manager.get_threshold('THREE_COLOR', play_category, 'zhengma_multi')
+        if len(all_numbers) >= threshold:
             record = {
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '正码',
+                '玩法分类': play_category,
                 '号码数量': len(all_numbers),
                 '投注内容': ', '.join([str(num) for num in sorted(all_numbers)]),
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正码多码')
             }
             self._add_unique_result(results, '正码多码', record)
+        
+        return results
     
-    def _analyze_three_color_two_sides(self, account, lottery, period, group, results):
-        two_sides_group = group[group['玩法分类'] == '两面']
+    def _analyze_three_color_two_sides(self, account, lottery, period, group, play_category):
+        """三色彩两面分析"""
+        results = defaultdict(list)
         
         has_big = False
         has_small = False
         has_single = False
         has_double = False
         
-        for _, row in two_sides_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             bets = self.data_analyzer.extract_size_parity_from_content(content)
             
@@ -4021,20 +3422,22 @@ class AnalysisEngine:
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '两面',
+                '玩法分类': play_category,
                 '矛盾类型': '、'.join(conflict_types),
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面矛盾')
             }
             self._add_unique_result(results, '两面矛盾', record)
+        
+        return results
     
-    def _analyze_three_color_wave(self, account, lottery, period, group, results):
-        """三色彩色波检测 - 记录同一期号内同时投注红波和绿波"""
-        wave_group = group[group['玩法分类'] == '色波']
+    def _analyze_three_color_wave(self, account, lottery, period, group, play_category):
+        """三色彩波色分析"""
+        results = defaultdict(list)
         
         # 收集该期号内所有波色投注
         all_waves = set()
         
-        for _, row in wave_group.iterrows():
+        for _, row in group.iterrows():
             content = str(row['内容'])
             # 使用三色彩专用的波色提取方法
             waves = self.data_analyzer.extract_three_color_wave_from_content(content)
@@ -4046,16 +3449,114 @@ class AnalysisEngine:
                 '会员账号': account,
                 '彩种': lottery,
                 '期号': period,
-                '玩法分类': '色波',
+                '玩法分类': play_category,
                 '投注波色数': len(all_waves),
                 '投注波色': sorted(list(all_waves)),
                 '投注内容': f"同一期号内投注: {', '.join(sorted(all_waves))}",
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(all_waves)}, '色波红绿投注')
             }
             self._add_unique_result(results, '色波红绿投注', record)
+        
+        # 检查波色全包
+        if len(all_waves) >= 3:  # 红波、绿波、紫波全包
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': play_category,
+                '违规类型': '色波全包',
+                '投注波色数': len(all_waves),
+                '投注波色': sorted(list(all_waves)),
+                '投注内容': f"色波全包: {', '.join(sorted(all_waves))}",
+                '排序权重': self._calculate_sort_weight({'投注波色数': len(all_waves)}, '色波全包')
+            }
+            self._add_unique_result(results, '色波全包', record)
+        
+        return results
+    
+    def _analyze_three_color_tema(self, account, lottery, period, group, play_category):
+        """三色彩特码分析"""
+        return self._analyze_number_bets(account, lottery, period, group, play_category, 'THREE_COLOR', '特码多码')
+
+    # ==================== 通用工具方法 ====================
+    def _parse_lhc_content(self, content):
+        """解析六合彩内容"""
+        content_str = str(content)
+        
+        if '-' in content_str:
+            parts = content_str.split('-', 1)
+            return parts[1].strip()
+        
+        return content_str
+    
+    def _analyze_number_bets(self, account, lottery, period, group, play_category, lottery_type, result_key):
+        """通用号码投注分析"""
+        results = defaultdict(list)
+        
+        all_numbers = set()
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            
+            if lottery_type == 'LHC':
+                clean_content = self._parse_lhc_content(content)
+            else:
+                clean_content = content
+                
+            config = LOTTERY_CONFIGS.get(lottery_type, {})
+            min_num = config.get('min_number', 0)
+            max_num = config.get('max_number', 49)
+            
+            numbers = self.data_analyzer.extract_numbers_from_content(clean_content, min_num, max_num)
+            all_numbers.update(numbers)
+        
+        threshold = self.threshold_manager.get_threshold(lottery_type, play_category, 'multi_number')
+        if len(all_numbers) >= threshold:
+            record = self._create_number_record(
+                account, lottery, period, play_category, all_numbers, result_key
+            )
+            self._add_unique_result(results, result_key, record)
+        
+        return results
+    
+    def _create_number_record(self, account, lottery, period, play_category, numbers, result_key):
+        """创建号码记录"""
+        return {
+            '会员账号': account,
+            '彩种': lottery,
+            '期号': period,
+            '玩法分类': play_category,
+            '号码数量': len(numbers),
+            '投注内容': ', '.join([f"{num:02d}" for num in sorted(numbers)]),
+            '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, result_key)
+        }
+    
+    def _get_record_hash(self, record):
+        """生成记录的唯一哈希值"""
+        key_parts = [
+            record['会员账号'],
+            record['彩种'], 
+            record['期号'],
+            record.get('玩法分类', ''),
+            record.get('违规类型', ''),
+            record.get('位置', ''),
+            str(record.get('号码数量', 0)),
+            record.get('矛盾类型', '')
+        ]
+        return hashlib.md5('|'.join(key_parts).encode()).hexdigest()
+    
+    def _add_unique_result(self, results, result_type, record):
+        """添加唯一的结果记录"""
+        record_hash = self._get_record_hash(record)
+        
+        if record_hash not in self.seen_records:
+            self.seen_records.add(record_hash)
+            results[result_type].append(record)
+            return True
+        return False
     
     def _calculate_sort_weight(self, record, result_type):
-        """计算排序权重 - 优化版本"""
+        """计算排序权重"""
         weight = 0
         
         # 基于号码数量
@@ -4067,12 +3568,12 @@ class AnalysisEngine:
             conflict_count = len(record['矛盾类型'].split('、'))
             weight += conflict_count * 15
         
-        # 基于其他数量字段 - 优化：生肖数量、尾数数量等按照数量大小排序
+        # 基于其他数量字段
         for field in ['生肖数量', '尾数数量', '投注区间数', '投注波色数', '投注五行数']:
             if record.get(field, 0) > 0:
                 weight += record[field] * 8
         
-        # 基于矛盾值 - 优化：和值大小矛盾按照相反方向的数量排序
+        # 基于矛盾值
         if record.get('矛盾值', 0) > 0:
             weight += record['矛盾值'] * 5
         
@@ -4087,103 +3588,6 @@ class AnalysisEngine:
             weight += 35
         
         return weight
-
-    def _analyze_detailed_category_patterns(self, account, lottery, period, group, results, 
-                                          category_config, extract_method, count_field, 
-                                          result_suffix, content_formatter=None):
-        """
-        通用详细分类检测方法
-        category_config: 分类配置字典 {分类名: {阈值配置}}
-        extract_method: 内容提取方法
-        count_field: 数量字段名
-        result_suffix: 结果后缀
-        content_formatter: 内容格式化函数
-        """
-        for category_name, config in category_config.items():
-            category_group = group[group['玩法分类'] == category_name]
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                
-                # 解析玩法-投注内容格式
-                if '-' in content:
-                    parts = content.split('-', 1)
-                    bet_content = parts[1].strip()
-                else:
-                    bet_content = content
-                    
-                # 提取内容
-                items = extract_method(bet_content)
-                
-                # 检测阈值
-                if len(items) >= config['threshold']:
-                    # 格式化显示内容
-                    if content_formatter:
-                        display_content = content_formatter(items)
-                    else:
-                        display_content = ', '.join(sorted([str(item) for item in items]))
-                    
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': f"{category_name}（{len(items)}{count_field}）",
-                        '违规类型': f'{category_name}{result_suffix}',
-                        count_field: len(items),
-                        '投注内容': display_content,
-                        '排序权重': self._calculate_sort_weight({count_field: len(items)}, f'{category_name}{result_suffix}')
-                    }
-                    self._add_unique_result(results, f'{category_name}{result_suffix}', record)
-    
-    def analyze_all_patterns(self, df):
-        """综合分析所有模式"""
-        logger.info("开始综合分析所有彩票模式...")
-        
-        # 重置缓存
-        self.seen_records = set()
-        
-        # 使用进度条
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        all_results = {}
-        # 修改这里：添加3D系列
-        lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
-        
-        for i, lottery_type in enumerate(lottery_types):
-            status_text.text(f"正在分析 {lottery_type}...")
-            
-            if lottery_type == 'PK拾赛车':
-                all_results[lottery_type] = self.analyze_pk10_patterns(df)
-            elif lottery_type == '时时彩':
-                all_results[lottery_type] = self.analyze_ssc_patterns(df)
-            elif lottery_type == '六合彩':
-                all_results[lottery_type] = self.analyze_lhc_patterns(df)
-            elif lottery_type == '快三':
-                all_results[lottery_type] = self.analyze_k3_patterns(df)
-            elif lottery_type == '三色彩':
-                all_results[lottery_type] = self.analyze_three_color_patterns(df)
-            # 添加3D系列分析
-            elif lottery_type == '3D系列':
-                all_results[lottery_type] = self.analyze_3d_patterns(df)
-            
-            progress_bar.progress((i + 1) / len(lottery_types))
-        
-        status_text.text("分析完成！")
-        
-        # 统计结果
-        total_findings = 0
-        for lottery_type, results in all_results.items():
-            type_count = sum(len(records) for records in results.values())
-            total_findings += type_count
-            if type_count > 0:
-                logger.info(f"{lottery_type}: 发现 {type_count} 条可疑记录")
-                for result_type, records in results.items():
-                    if records:
-                        logger.info(f"  - {result_type}: {len(records)} 条")
-        
-        logger.info(f"总计发现 {total_findings} 条可疑记录")
-        return all_results
 
 # ==================== 结果处理器 ====================
 class ResultProcessor:
@@ -4825,7 +4229,7 @@ def main():
             with st.spinner('正在处理数据...'):
                 # 初始化组件
                 processor = DataProcessor()
-                analyzer = AnalysisEngine()
+                analyzer = UnifiedAnalyzer()
                 result_processor = ResultProcessor()
                 exporter = Exporter()
                 
@@ -4843,9 +4247,12 @@ def main():
                         st.metric("彩种数量", df_clean['彩种'].nunique())
                     
                     # 统一玩法分类
-                    df_normalized = analyzer.normalize_play_categories(df_clean)
+                    play_normalizer = PlayCategoryNormalizer()
+                    if '玩法' in df_clean.columns:
+                        df_clean['玩法分类'] = df_clean['玩法'].apply(play_normalizer.normalize_categ
                     
-                    # 分析投注模式
+                    # 分析投注模式 - 使用新的统一分析器
+                    all_results = analyzer.analyze_all_patterns(df_clean)
                     # 使用进度条
                     progress_bar = st.progress(0)
                     status_text = st.empty()
