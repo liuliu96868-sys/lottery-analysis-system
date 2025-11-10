@@ -3456,21 +3456,6 @@ class AnalysisEngine:
             }
             self._add_unique_result(results, '正码波色全包', record)
         
-        # 检查单个位置的波色矛盾
-        for position, waves in position_waves.items():
-            if len(waves) >= 2:  # 同一位置投注2个或以上波色
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': f'{position}波色',
-                    '违规类型': f'{position}波色多投',
-                    '投注波色数': len(waves),
-                    '投注波色': sorted(list(waves)),
-                    '投注内容': f"{position}-{', '.join(sorted(waves))}",
-                    '排序权重': self._calculate_sort_weight({'投注波色数': len(waves)}, f'{position}波色多投')
-                }
-                self._add_unique_result(results, f'{position}波色多投', record)
     
     def _extract_wave_from_zhengma_bet(self, bet_content):
         """从正码投注内容中精确提取波色"""
