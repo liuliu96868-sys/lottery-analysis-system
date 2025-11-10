@@ -3739,7 +3739,7 @@ class AnalysisEngine:
         return results
     
     def _analyze_k3_hezhi_enhanced(self, account, lottery, period, group, results):
-        """分析快三和值玩法 - 优化版，优先展示数量最多的矛盾组合"""
+        """分析快三和值玩法 - 优化版，避免重复检测"""
         hezhi_categories = ['和值', '和值_大小单双']
         
         hezhi_group = group[group['玩法分类'].isin(hezhi_categories)]
@@ -3778,7 +3778,7 @@ class AnalysisEngine:
             if '双' in content_lower:
                 has_double = True
         
-        # 和值多码检测（11码或以上）- 优先记录
+        # 和值多码检测（11码或以上）- 如果检测到就完全退出
         if len(all_numbers) >= THRESHOLD_CONFIG['K3']['hezhi_multi_number']:
             bet_content = ', '.join([str(num) for num in sorted(all_numbers)])
             
@@ -3792,9 +3792,9 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '和值多码')
             }
             self._add_unique_result(results, '和值多码', record)
-            return  # 避免重复记录
+            return  # 完全退出，不进行后续检测
         
-        # 和值矛盾检测（大小单双同时下注）- 这是和值矛盾
+        # 和值矛盾检测（大小单双同时下注）
         conflict_types = []
         if has_big and has_small:
             conflict_types.append('大小')
@@ -3813,7 +3813,6 @@ class AnalysisEngine:
                 bet_content_parts.append('双')
             bet_content = ', '.join(bet_content_parts)
             
-            # 这是和值矛盾，不是和值大小矛盾
             record = {
                 '会员账号': account,
                 '彩种': lottery,
@@ -3824,8 +3823,9 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '和值矛盾')
             }
             self._add_unique_result(results, '和值矛盾', record)
+            return  # 如果检测到和值矛盾，也不进行和值大小矛盾检测
         
-        # 和值大小矛盾检测 - 这是和值大小矛盾（投注方向与号码分布矛盾）
+        # 和值大小矛盾检测 - 只有在没有检测到和值多码和和值矛盾时才进行
         if all_numbers and len(all_numbers) < THRESHOLD_CONFIG['K3']['hezhi_multi_number']:
             small_values = [num for num in all_numbers if 3 <= num <= 10]
             big_values = [num for num in all_numbers if 11 <= num <= 18]
@@ -3868,7 +3868,6 @@ class AnalysisEngine:
                 best_contradiction = possible_contradictions[0]
                 contradiction_type, contradiction_desc, contradiction_value = best_contradiction
                 
-                # 这是和值大小矛盾，与和值矛盾不同
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
