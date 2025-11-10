@@ -2980,9 +2980,10 @@ class AnalysisEngine:
                 '彩种': lottery,
                 '期号': period,
                 '玩法分类': '色波',
+                '违规类型': '色波全包',
                 '投注波色数': len(traditional_waves),
                 '投注波色': sorted(list(traditional_waves)),
-                '投注内容': ', '.join(sorted(traditional_waves)),
+                '投注内容': f"色波全包: {', '.join(sorted(traditional_waves))}",
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '色波全包')
             }
             self._add_unique_result(results, '色波全包', record)
@@ -3435,26 +3436,23 @@ class AnalysisEngine:
                     waves = self._extract_wave_from_zhengma_bet(bet)
                     position_waves[normalized_position].update(waves)
         
-        # 检查波色全包情况
-        all_waves = set()
-        for position, waves in position_waves.items():
-            all_waves.update(waves)
-        
-        # 如果同时投注了红波、蓝波、绿波，则视为波色全包
+        # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
-        if traditional_waves.issubset(all_waves):
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '正码波色',
-                '违规类型': '正码波色全包',
-                '投注波色数': len(traditional_waves),
-                '投注波色': sorted(list(traditional_waves)),
-                '投注内容': f"正码波色全包: {', '.join(sorted(traditional_waves))}",
-                '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '正码波色全包')
-            }
-            self._add_unique_result(results, '正码波色全包', record)
+        for position, waves in position_waves.items():
+            # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
+            if traditional_waves.issubset(waves):
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': f'{position}波色',
+                    '违规类型': f'{position}波色全包',
+                    '投注波色数': len(traditional_waves),
+                    '投注波色': sorted(list(traditional_waves)),
+                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                    '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
+                }
+                self._add_unique_result(results, f'{position}波色全包', record)
         
     
     def _extract_wave_from_zhengma_bet(self, bet_content):
