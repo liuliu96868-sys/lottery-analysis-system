@@ -251,12 +251,25 @@ class DataProcessor:
         
         # 检查数据类型
         if '期号' in df.columns:
+            # 确保期号为字符串类型
+            df['期号'] = df['期号'].astype(str)
             # 修复期号格式问题：去掉.0
-            df['期号'] = df['期号'].astype(str).str.replace(r'\.0$', '', regex=True)
+            df['期号'] = df['期号'].str.replace(r'\.0$', '', regex=True)
             # 允许期号包含字母和数字
-            invalid_periods = df[~df['期号'].str.match(r'^[\dA-Za-z]+$')]
+            invalid_periods = df[~df['期号'].str.match(r'^[\dA-Za-z]+$', na=True)]
             if len(invalid_periods) > 0:
                 issues.append(f"发现 {len(invalid_periods)} 条无效期号记录")
+        
+        # 检查金额列的有效性
+        if '金额' in df.columns:
+            try:
+                # 尝试转换为数值类型
+                df['金额'] = pd.to_numeric(df['金额'], errors='coerce')
+                invalid_amounts = df['金额'].isnull().sum()
+                if invalid_amounts > 0:
+                    issues.append(f"发现 {invalid_amounts} 条无效金额记录")
+            except Exception as e:
+                issues.append(f"金额列转换失败: {str(e)}")
         
         # 检查重复数据
         duplicate_count = df.duplicated().sum()
@@ -337,17 +350,27 @@ class DataProcessor:
                     else:
                         df_clean[col] = df_clean[col].astype(str).str.strip()
             
-            # 修复期号格式：去掉.0
+            # 修复期号格式：去掉.0 - 改进：确保转换为字符串
             if '期号' in df_clean.columns:
-                df_clean['期号'] = df_clean['期号'].str.replace(r'\.0$', '', regex=True)
+                df_clean['期号'] = df_clean['期号'].astype(str).str.replace(r'\.0$', '', regex=True)
+            
+            # 验证金额列的有效性
+            if '金额' in df_clean.columns:
+                try:
+                    # 尝试转换为数值类型
+                    df_clean['金额'] = pd.to_numeric(df_clean['金额'], errors='coerce')
+                    invalid_amounts = df_clean['金额'].isnull().sum()
+                    if invalid_amounts > 0:
+                        st.warning(f"发现 {invalid_amounts} 条无效金额记录")
+                except Exception as e:
+                    st.warning(f"金额列转换失败: {str(e)}")
             
             # 数据质量验证 - 添加会员账号完整性检查
             self.validate_data_quality(df_clean)
             
             st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
             
-            # 在 clean_data 方法中，修改显示会员账号样本的部分：
-                
+            # 显示会员账号样本
             st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
             
             # 彩种分布显示
@@ -360,6 +383,8 @@ class DataProcessor:
         except Exception as e:
             st.error(f"❌ 数据清洗失败: {str(e)}")
             logger.error(f"数据清洗失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")  # 添加详细错误日志
             return None
 
 # ==================== 内容解析器 ====================
@@ -373,46 +398,50 @@ class ContentParser:
         格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
         或者：_|05|_|_|_ 表示只有第二个位置有投注
         """
-        content_str = str(content).strip()
-        bets_by_position = defaultdict(list)
-        
-        if not content_str:
+        try:
+            content_str = str(content).strip()
+            bets_by_position = defaultdict(list)
+            
+            if not content_str:
+                return bets_by_position
+            
+            # 定义位置映射 - 修正重复的位置
+            positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
+                        '第六名', '第七名', '第八名', '第九名', '第十名']
+            
+            # 按竖线分割
+            parts = content_str.split('|')
+            
+            for i, part in enumerate(parts):
+                if i < len(positions):
+                    position = positions[i]
+                    part_clean = part.strip()
+                    
+                    # 跳过空位或下划线
+                    if not part_clean or part_clean == '_' or part_clean == '':
+                        continue
+                    
+                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                    numbers = []
+                    if ',' in part_clean:
+                        # 逗号分隔的多个数字
+                        number_strs = part_clean.split(',')
+                        for num_str in number_strs:
+                            num_clean = num_str.strip()
+                            if num_clean.isdigit():
+                                numbers.append(int(num_clean))
+                    else:
+                        # 单个数字 - 修复：使用part_clean
+                        if part_clean.isdigit():
+                            numbers.append(int(part_clean))
+                    
+                    # 添加到对应位置
+                    bets_by_position[position].extend(numbers)
+            
             return bets_by_position
-        
-        # 定义位置映射
-        positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
-                    '第六名', '第七名', '第七名', '第八名', '第九名', '第十名']
-        
-        # 按竖线分割
-        parts = content_str.split('|')
-        
-        for i, part in enumerate(parts):
-            if i < len(positions):
-                position = positions[i]
-                part_clean = part.strip()
-                
-                # 跳过空位或下划线
-                if not part_clean or part_clean == '_' or part_clean == '':
-                    continue
-                
-                # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                numbers = []
-                if ',' in part_clean:
-                    # 逗号分隔的多个数字
-                    number_strs = part_clean.split(',')
-                    for num_str in number_strs:
-                        num_clean = num_str.strip()
-                        if num_clean.isdigit():
-                            numbers.append(int(num_clean))
-                else:
-                    # 单个数字 - 修复这里
-                    if part_clean.isdigit():
-                        numbers.append(int(part_clean))  # 这里改为 part_clean
-                
-                # 添加到对应位置
-                bets_by_position[position].extend(numbers)
-        
-        return bets_by_position
+        except Exception as e:
+            logger.warning(f"解析PK10竖线格式失败: {content}, 错误: {str(e)}")
+            return defaultdict(list)
     
     @staticmethod
     def parse_ssc_vertical_format(content):
@@ -421,45 +450,49 @@ class ContentParser:
         格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
         或者：_|05|_|_|_ 表示只有第二个位置有投注
         """
-        content_str = str(content).strip()
-        bets_by_position = defaultdict(list)
-        
-        if not content_str:
+        try:
+            content_str = str(content).strip()
+            bets_by_position = defaultdict(list)
+            
+            if not content_str:
+                return bets_by_position
+            
+            # 定义位置映射
+            positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
+            
+            # 按竖线分割
+            parts = content_str.split('|')
+            
+            for i, part in enumerate(parts):
+                if i < len(positions):
+                    position = positions[i]
+                    part_clean = part.strip()
+                    
+                    # 跳过空位或下划线
+                    if not part_clean or part_clean == '_' or part_clean == '':
+                        continue
+                    
+                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                    numbers = []
+                    if ',' in part_clean:
+                        # 逗号分隔的多个数字
+                        number_strs = part_clean.split(',')
+                        for num_str in number_strs:
+                            num_clean = num_str.strip()
+                            if num_clean.isdigit():
+                                numbers.append(int(num_clean))
+                    else:
+                        # 单个数字 - 修复：使用part_clean
+                        if part_clean.isdigit():
+                            numbers.append(int(part_clean))
+                    
+                    # 添加到对应位置
+                    bets_by_position[position].extend(numbers)
+            
             return bets_by_position
-        
-        # 定义位置映射
-        positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
-        
-        # 按竖线分割
-        parts = content_str.split('|')
-        
-        for i, part in enumerate(parts):
-            if i < len(positions):
-                position = positions[i]
-                part_clean = part.strip()
-                
-                # 跳过空位或下划线
-                if not part_clean or part_clean == '_' or part_clean == '':
-                    continue
-                
-                # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                numbers = []
-                if ',' in part_clean:
-                    # 逗号分隔的多个数字
-                    number_strs = part_clean.split(',')
-                    for num_str in number_strs:
-                        num_clean = num_str.strip()
-                        if num_clean.isdigit():
-                            numbers.append(int(num_clean))
-                else:
-                    # 单个数字 - 修复这里
-                    if part_clean.isdigit():
-                        numbers.append(int(part_clean))  # 这里改为 part_clean
-                
-                # 添加到对应位置
-                bets_by_position[position].extend(numbers)
-        
-        return bets_by_position
+        except Exception as e:
+            logger.warning(f"解析时时彩竖线格式失败: {content}, 错误: {str(e)}")
+            return defaultdict(list)
 
     @staticmethod
     def parse_ssc_vertical_format(content):
@@ -661,45 +694,49 @@ class ContentParser:
         格式：号码1,号码2|号码3|号码4,号码5,号码6
         或者：_|05|_ 表示只有第二个位置有投注
         """
-        content_str = str(content).strip()
-        bets_by_position = defaultdict(list)
-        
-        if not content_str:
+        try:
+            content_str = str(content).strip()
+            bets_by_position = defaultdict(list)
+            
+            if not content_str:
+                return bets_by_position
+            
+            # 定义位置映射 - 3D通常是百位、十位、个位
+            positions = ['百位', '十位', '个位']
+            
+            # 按竖线分割
+            parts = content_str.split('|')
+            
+            for i, part in enumerate(parts):
+                if i < len(positions):
+                    position = positions[i]
+                    part_clean = part.strip()
+                    
+                    # 跳过空位或下划线
+                    if not part_clean or part_clean == '_' or part_clean == '':
+                        continue
+                    
+                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                    numbers = []
+                    if ',' in part_clean:
+                        # 逗号分隔的多个数字
+                        number_strs = part_clean.split(',')
+                        for num_str in number_strs:
+                            num_clean = num_str.strip()
+                            if num_clean.isdigit():
+                                numbers.append(int(num_clean))
+                    else:
+                        # 单个数字 - 修复：使用part_clean
+                        if part_clean.isdigit():
+                            numbers.append(int(part_clean))
+                    
+                    # 添加到对应位置
+                    bets_by_position[position].extend(numbers)
+            
             return bets_by_position
-        
-        # 定义位置映射 - 3D通常是百位、十位、个位
-        positions = ['百位', '十位', '个位']
-        
-        # 按竖线分割
-        parts = content_str.split('|')
-        
-        for i, part in enumerate(parts):
-            if i < len(positions):
-                position = positions[i]
-                part_clean = part.strip()
-                
-                # 跳过空位或下划线
-                if not part_clean or part_clean == '_' or part_clean == '':
-                    continue
-                
-                # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                numbers = []
-                if ',' in part_clean:
-                    # 逗号分隔的多个数字
-                    number_strs = part_clean.split(',')
-                    for num_str in number_strs:
-                        num_clean = num_str.strip()
-                        if num_clean.isdigit():
-                            numbers.append(int(num_clean))
-                else:
-                    # 单个数字 - 修复这里：应该使用 part_clean 而不是 num_clean
-                    if part_clean.isdigit():
-                        numbers.append(int(part_clean))  # 这里改为 part_clean
-                
-                # 添加到对应位置
-                bets_by_position[position].extend(numbers)
-        
-        return bets_by_position
+        except Exception as e:
+            logger.warning(f"解析3D竖线格式失败: {content}, 错误: {str(e)}")
+            return defaultdict(list)
 
     @staticmethod
     def infer_position_from_content(content, lottery_type):
@@ -1751,10 +1788,8 @@ class AnalysisEngine:
             return results
         
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        total_groups = len(grouped)
         
-        for i, ((account, lottery, period), group) in enumerate(grouped):
-            
+        for (account, lottery, period), group in grouped:
             self._analyze_pk10_two_sides(account, lottery, period, group, results)
             self._analyze_pk10_gyh(account, lottery, period, group, results)
             self._analyze_pk10_number_plays(account, lottery, period, group, results)
