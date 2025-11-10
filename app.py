@@ -3541,7 +3541,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
 
     def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 精确版本"""
+        """分析六合彩正码中的波色投注 - 修复位置判断问题"""
         # 正码相关的玩法分类
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
@@ -3550,25 +3550,36 @@ class AnalysisEngine:
         if zhengma_group.empty:
             return
         
-        # 收集每个位置的波色投注
+        # 收集每个位置的波色投注 - 使用更精确的位置判断
         position_waves = defaultdict(set)
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
+            # 首先从玩法分类中精确推断位置
+            inferred_position = self._infer_zhengma_position_from_category(category)
+            
             # 使用统一解析器解析正码内容
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
-            for position, bets in bets_by_position.items():
-                # 标准化位置名称
-                normalized_position = self._normalize_zhengma_position(position)
-                
-                # 检查每个投注项的波色
-                for bet in bets:
-                    # 使用增强的波色提取方法
-                    waves = self._extract_wave_from_zhengma_bet(bet)
-                    position_waves[normalized_position].update(waves)
+            # 如果没有解析出位置，使用推断的位置
+            if not bets_by_position or all(pos == '未知位置' for pos in bets_by_position.keys()):
+                if inferred_position:
+                    # 从内容中提取波色
+                    waves = self._extract_wave_from_zhengma_content(content)
+                    if waves:
+                        position_waves[inferred_position].update(waves)
+            else:
+                # 使用解析出的位置
+                for position, bets in bets_by_position.items():
+                    # 标准化位置名称
+                    normalized_position = self._normalize_zhengma_position(position)
+                    
+                    # 检查每个投注项的波色
+                    for bet in bets:
+                        waves = self._extract_wave_from_zhengma_bet(bet)
+                        position_waves[normalized_position].update(waves)
         
         # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
@@ -3588,28 +3599,126 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
+    
+    def _infer_zhengma_position_from_category(self, category):
+        """从玩法分类精确推断正码位置"""
+        category_str = str(category).strip()
         
+        # 精确的位置映射
+        position_mapping = {
+            '正码一': ['正码一', '正1', '正码1', '正码一特', '正一特', '正码1特'],
+            '正码二': ['正码二', '正2', '正码2', '正码二特', '正二特', '正码2特'],
+            '正码三': ['正码三', '正3', '正码3', '正码三特', '正三特', '正码3特'],
+            '正码四': ['正码四', '正4', '正码4', '正码四特', '正四特', '正码4特'],
+            '正码五': ['正码五', '正5', '正码5', '正码五特', '正五特', '正码5特'],
+            '正码六': ['正码六', '正6', '正码6', '正码六特', '正六特', '正码6特']
+        }
+        
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in category_str:
+                    return position
+        
+        # 如果分类是"正码"或"正码1-6"，尝试从内容推断
+        if '正码' in category_str and '特' not in category_str:
+            return '正码'  # 返回通用位置
+        
+        return None
+    
+    def _extract_wave_from_zhengma_content(self, content):
+        """从正码内容中提取波色 - 增强版"""
+        content_str = str(content).strip()
+        waves = set()
+        
+        # 移除玩法前缀（如果有）
+        if '-' in content_str:
+            parts = content_str.split('-', 1)
+            bet_content = parts[1].strip()
+        else:
+            bet_content = content_str
+        
+        # 精确匹配波色关键词
+        wave_keywords = {
+            '红波': ['红波', '紅色波'],
+            '蓝波': ['蓝波', '藍波'], 
+            '绿波': ['绿波', '綠波']
+        }
+        
+        # 按逗号分割投注内容
+        bet_items = [item.strip() for item in bet_content.split(',')]
+        
+        for item in bet_items:
+            for wave_name, keywords in wave_keywords.items():
+                for keyword in keywords:
+                    if keyword == item:  # 精确匹配
+                        waves.add(wave_name)
+                        break
+        
+        return waves
     
     def _extract_wave_from_zhengma_bet(self, bet_content):
-        """从正码投注内容中精确提取波色"""
+        """从正码单个投注项中精确提取波色"""
         bet_str = str(bet_content).strip()
         waves = set()
         
         # 精确匹配波色关键词
         wave_keywords = {
-            '红波': ['红波', '紅色波', '红'],
-            '蓝波': ['蓝波', '藍波', '蓝', '藍'], 
-            '绿波': ['绿波', '綠波', '绿', '綠']
+            '红波': ['红波', '紅色波'],
+            '蓝波': ['蓝波', '藍波'], 
+            '绿波': ['绿波', '綠波']
         }
         
         for wave_name, keywords in wave_keywords.items():
             for keyword in keywords:
-                # 精确匹配，避免部分匹配
-                if keyword == bet_str or f"-{keyword}" in bet_str or f"{keyword}," in bet_str:
+                # 精确匹配整个投注项或逗号分隔的部分
+                if keyword == bet_str:
                     waves.add(wave_name)
                     break
         
         return waves
+    
+    def _normalize_zhengma_position(self, position):
+        """标准化正码位置名称 - 增强版本"""
+        position_mapping = {
+            # 中文标准格式
+            '正码一': '正码一', '正1': '正码一', '正码1': '正码一', '正一': '正码一',
+            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', '正二': '正码二',
+            '正码三': '正码三', '正3': '正码三', '正码3': '正码三', '正三': '正码三',
+            '正码四': '正码四', '正4': '正码四', '正码4': '正码四', '正四': '正码四',
+            '正码五': '正码五', '正5': '正码五', '正码5': '正码五', '正五': '正码五',
+            '正码六': '正码六', '正6': '正码六', '正码6': '正码六', '正六': '正码六',
+            # 处理带冒号的格式
+            '正码一:': '正码一', '正码二:': '正码二', '正码三:': '正码三',
+            '正码四:': '正码四', '正码五:': '正码五', '正码六:': '正码六',
+            # 默认映射
+            '未知位置': '正码一'
+        }
+        
+        position = position.strip()
+        
+        # 直接映射
+        if position in position_mapping:
+            return position_mapping[position]
+        
+        # 模糊匹配
+        for key, value in position_mapping.items():
+            if key in position:
+                return value
+        
+        # 如果包含数字，尝试提取数字并映射
+        import re
+        digit_match = re.search(r'\d', position)
+        if digit_match:
+            digit = digit_match.group()
+            digit_mapping = {
+                '1': '正码一', '2': '正码二', '3': '正码三',
+                '4': '正码四', '5': '正码五', '6': '正码六'
+            }
+            if digit in digit_mapping:
+                return digit_mapping[digit]
+        
+        # 返回原位置
+        return position
 
     # =============== 3D系列分析方法 ===============
     def analyze_3d_patterns(self, df):
