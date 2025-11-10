@@ -381,7 +381,7 @@ class ContentParser:
         
         # 定义位置映射
         positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
-                    '第六名', '第七名', '第八名', '第九名', '第十名']
+                    '第六名', '第七名', '第七名', '第八名', '第九名', '第十名']
         
         # 按竖线分割
         parts = content_str.split('|')
@@ -405,9 +405,56 @@ class ContentParser:
                         if num_clean.isdigit():
                             numbers.append(int(num_clean))
                 else:
-                    # 单个数字
+                    # 单个数字 - 修复这里
                     if part_clean.isdigit():
-                        numbers.append(int(part_clean))
+                        numbers.append(int(part_clean))  # 这里改为 part_clean
+                
+                # 添加到对应位置
+                bets_by_position[position].extend(numbers)
+        
+        return bets_by_position
+    
+    @staticmethod
+    def parse_ssc_vertical_format(content):
+        """
+        解析时时彩竖线分隔的定位胆格式
+        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
+        或者：_|05|_|_|_ 表示只有第二个位置有投注
+        """
+        content_str = str(content).strip()
+        bets_by_position = defaultdict(list)
+        
+        if not content_str:
+            return bets_by_position
+        
+        # 定义位置映射
+        positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
+        
+        # 按竖线分割
+        parts = content_str.split('|')
+        
+        for i, part in enumerate(parts):
+            if i < len(positions):
+                position = positions[i]
+                part_clean = part.strip()
+                
+                # 跳过空位或下划线
+                if not part_clean or part_clean == '_' or part_clean == '':
+                    continue
+                
+                # 提取数字（可能是单个数字或多个逗号分隔的数字）
+                numbers = []
+                if ',' in part_clean:
+                    # 逗号分隔的多个数字
+                    number_strs = part_clean.split(',')
+                    for num_str in number_strs:
+                        num_clean = num_str.strip()
+                        if num_clean.isdigit():
+                            numbers.append(int(num_clean))
+                else:
+                    # 单个数字 - 修复这里
+                    if part_clean.isdigit():
+                        numbers.append(int(part_clean))  # 这里改为 part_clean
                 
                 # 添加到对应位置
                 bets_by_position[position].extend(numbers)
@@ -645,9 +692,9 @@ class ContentParser:
                         if num_clean.isdigit():
                             numbers.append(int(num_clean))
                 else:
-                    # 单个数字
+                    # 单个数字 - 修复这里：应该使用 part_clean 而不是 num_clean
                     if part_clean.isdigit():
-                        numbers.append(int(num_clean))
+                        numbers.append(int(part_clean))  # 这里改为 part_clean
                 
                 # 添加到对应位置
                 bets_by_position[position].extend(numbers)
