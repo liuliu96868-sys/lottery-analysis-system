@@ -962,10 +962,10 @@ class DataAnalyzer:
         
         return list(set(dragon_tiger))
     
-    def extract_size_parity_from_content(self, content):
-        """从内容中提取大小单双 - 增强空格处理"""
-        content_str = normalize_spaces(str(content))
-        size_parity = []
+    def extract_wave_color_from_content(self, content):
+        """从内容中提取波色 - 增强版，支持半波项识别"""
+        content_str = str(content)
+        found_waves = []
         
         # 波色映射（包括七色波的所有颜色）
         wave_mappings = {
