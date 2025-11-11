@@ -1350,7 +1350,7 @@ class PlayCategoryNormalizer:
             '正特': '正特',
             '正玛特': '正特',
             '正码1-6': '正码',
-            
+           
             # 尾数相关玩法独立映射
             '尾数': '尾数',
             '尾数_头尾数': '尾数_头尾数',  # 独立映射
@@ -1412,8 +1412,20 @@ class PlayCategoryNormalizer:
             # 正码1-6相关映射
             '正码1-6': '正码1-6',
             '正码1~6': '正码1-6',
+            '正码一': '正码一',
+            '正码二': '正码二', 
+            '正码三': '正码三',
+            '正码四': '正码四',
+            '正码五': '正码五',
+            '正码六': '正码六',
             '正码1-6特': '正码1-6',
             '正码1~6特': '正码1-6',
+            '正码一特': '正1特',
+            '正码二特': '正2特',
+            '正码三特': '正3特', 
+            '正码四特': '正4特',
+            '正码五特': '正5特',
+            '正码六特': '正6特',
 
             # 3D系列玩法映射
             '两面': '两面',
@@ -1483,12 +1495,20 @@ class PlayCategoryNormalizer:
             '单双_季军': '单双_季军',
             
             # 龙虎独立玩法
+            '龙虎': '龙虎',
             '龙虎_冠军': '龙虎_冠军',
             '龙虎_冠 军': '龙虎_冠军',
             '龙虎_亚军': '龙虎_亚军',
             '龙虎_亚 军': '龙虎_亚军',
             '龙虎_季军': '龙虎_季军',
             '龙虎_季 军': '龙虎_季军',
+            '龙虎_第四名': '龙虎_第四名',
+            '龙虎_第五名': '龙虎_第五名',
+            '龙虎_第六名': '龙虎_第六名',
+            '龙虎_第七名': '龙虎_第七名',
+            '龙虎_第八名': '龙虎_第八名',
+            '龙虎_第九名': '龙虎_第九名',
+            '龙虎_第十名': '龙虎_第十名',
             
             # 定位胆细分
             '定位胆_第1~5名': '定位胆_第1~5名',
@@ -1556,6 +1576,42 @@ class PlayCategoryNormalizer:
                 return value
         
         category_lower = category_str.lower()
+        
+        # 六合彩正码具体位置智能匹配 - 新增
+        if any(word in category_lower for word in ['正码一', '正一', '正1']):
+            return '正码一'
+        elif any(word in category_lower for word in ['正码二', '正二', '正2']):
+            return '正码二'
+        elif any(word in category_lower for word in ['正码三', '正三', '正3']):
+            return '正码三'
+        elif any(word in category_lower for word in ['正码四', '正四', '正4']):
+            return '正码四'
+        elif any(word in category_lower for word in ['正码五', '正五', '正5']):
+            return '正码五'
+        elif any(word in category_lower for word in ['正码六', '正六', '正6']):
+            return '正码六'
+        
+        # 龙虎玩法智能匹配 - 新增
+        if any(word in category_lower for word in ['龙虎_冠军', '冠军龙虎']):
+            return '龙虎_冠军'
+        elif any(word in category_lower for word in ['龙虎_亚军', '亚军龙虎']):
+            return '龙虎_亚军'
+        elif any(word in category_lower for word in ['龙虎_季军', '季军龙虎']):
+            return '龙虎_季军'
+        elif any(word in category_lower for word in ['龙虎_第四名']):
+            return '龙虎_第四名'
+        elif any(word in category_lower for word in ['龙虎_第五名']):
+            return '龙虎_第五名'
+        elif any(word in category_lower for word in ['龙虎_第六名']):
+            return '龙虎_第六名'
+        elif any(word in category_lower for word in ['龙虎_第七名']):
+            return '龙虎_第七名'
+        elif any(word in category_lower for word in ['龙虎_第八名']):
+            return '龙虎_第八名'
+        elif any(word in category_lower for word in ['龙虎_第九名']):
+            return '龙虎_第九名'
+        elif any(word in category_lower for word in ['龙虎_第十名']):
+            return '龙虎_第十名'
         
         # PK10/赛车智能匹配 - 补充更多变体
         if any(word in category_lower for word in ['定位胆_第1~5名', '定位胆1~5', '定位胆1-5']):
@@ -2142,8 +2198,13 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测"""
-        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
+        """PK10龙虎详细检测 - 修正检测范围"""
+        # 扩展龙虎玩法分类
+        dragon_tiger_categories = [
+            '龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎_第四名', '龙虎_第五名',
+            '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名',
+            '龙虎'
+        ]
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
         
@@ -2159,7 +2220,21 @@ class AnalysisEngine:
             elif '亚军' in category:
                 position = '亚军'
             elif '季军' in category:
-                position = '季军'
+                position = '第三名'
+            elif '第四名' in category:
+                position = '第四名'
+            elif '第五名' in category:
+                position = '第五名'
+            elif '第六名' in category:
+                position = '第六名'
+            elif '第七名' in category:
+                position = '第七名'
+            elif '第八名' in category:
+                position = '第八名'
+            elif '第九名' in category:
+                position = '第九名'
+            elif '第十名' in category:
+                position = '第十名'
             else:
                 # 从内容推断位置
                 position = self.data_analyzer._infer_pk10_position_from_content(content)
@@ -3595,8 +3670,12 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
 
     def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """增强版六合彩正码波色全包检测 - 精确位置判断"""
-        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+        """增强版六合彩正码波色全包检测 - 修正检测范围"""
+        # 扩展正码相关的玩法分类，包含具体位置
+        zhengma_categories = [
+            '正码', '正码1-6', 
+            '正码一', '正码二', '正码三', '正码四', '正码五', '正码六'
+        ]
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
         
@@ -3605,17 +3684,39 @@ class AnalysisEngine:
         
         # 收集每个位置的波色投注
         position_waves = defaultdict(set)
-        position_contents = defaultdict(list)  # 记录原始内容用于调试
+        position_contents = defaultdict(list)
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
+            # 调试信息：显示原始分类和内容
+            logger.info(f"检测正码波色 - 分类: {category}, 内容: {content}")
+            
             # 使用增强解析器
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
+            # 如果解析器没有解析出位置，但分类是具体位置，则使用分类中的位置
+            if not bets_by_position or (len(bets_by_position) == 1 and '未知位置' in bets_by_position):
+                # 从分类中提取位置
+                if category in ['正码一', '正码二', '正码三', '正码四', '正码五', '正码六']:
+                    position = category
+                    # 直接解析内容中的波色
+                    waves = set()
+                    if '红波' in content or '紅波' in content:
+                        waves.add('红波')
+                    if '蓝波' in content or '藍波' in content:
+                        waves.add('蓝波')
+                    if '绿波' in content or '綠波' in content:
+                        waves.add('绿波')
+                    
+                    if waves:
+                        position_waves[position].update(waves)
+                        position_contents[position].append(content)
+                    continue
+            
             for position, bets in bets_by_position.items():
-                position_contents[position].append(content)  # 记录原始内容
+                position_contents[position].append(content)
                 
                 # 检查每个投注项的波色
                 for bet in bets:
@@ -3628,7 +3729,6 @@ class AnalysisEngine:
                         position_waves[position].add('蓝波') 
                     if '绿波' in bet_str or '綠波' in bet_str:
                         position_waves[position].add('绿波')
-                    # 移除紫波，六合彩没有紫波
                     
                     # 处理波色全包的特殊情况
                     if '波色全包' in bet_str or '波色全包' in content:
@@ -3638,14 +3738,16 @@ class AnalysisEngine:
                             position_waves[position].add('绿波')
                         if '蓝' in content:
                             position_waves[position].add('蓝波')
-                        # 移除紫波，六合彩没有紫波
+        
+        # 调试信息：显示位置波色解析结果
+        for position, waves in position_waves.items():
+            logger.info(f"位置 {position} 的波色: {sorted(waves)}")
         
         # 检查每个位置的波色全包情况
-        traditional_waves = {'红波', '蓝波', '绿波'}  # 六合彩只有这三种波色
+        traditional_waves = {'红波', '蓝波', '绿波'}
         for position, waves in position_waves.items():
             # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
             if traditional_waves.issubset(waves):
-                # 获取相关原始内容用于显示
                 related_contents = position_contents.get(position, [])
                 sample_content = related_contents[0] if related_contents else "未知内容"
                 
@@ -3659,7 +3761,7 @@ class AnalysisEngine:
                     '投注波色数': len(traditional_waves),
                     '投注波色': sorted(list(traditional_waves)),
                     '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
-                    '原始内容样本': sample_content[:100],  # 显示部分原始内容用于验证
+                    '原始内容样本': sample_content[:100],
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
