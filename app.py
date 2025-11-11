@@ -3930,6 +3930,34 @@ class AnalysisEngine:
         # 返回原位置
         return position_str
 
+    def debug_zhengma_data(self, df):
+        """调试正码数据聚合情况"""
+        lhc_df = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
+        
+        # 查找正码相关的记录
+        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+        zhengma_df = lhc_df[lhc_df['玩法分类'].isin(zhengma_categories)]
+        
+        print("=== 正码数据调试 ===")
+        print(f"找到 {len(zhengma_df)} 条正码相关记录")
+        
+        # 按账户和期号分组
+        grouped = zhengma_df.groupby(['会员账号', '彩种', '期号'])
+        
+        for (account, lottery, period), group in grouped:
+            print(f"\n账号: {account}, 期号: {period}")
+            
+            # 按玩法分类显示记录
+            for category in zhengma_categories:
+                category_group = group[group['玩法分类'] == category]
+                if not category_group.empty:
+                    print(f"  玩法分类: {category}")
+                    for _, row in category_group.iterrows():
+                        content = str(row['内容'])
+                        print(f"    内容: {content}")
+        
+        print("===================")
+
     # =============== 3D系列分析方法 ===============
     def analyze_3d_patterns(self, df):
         """分析3D系列投注模式"""
@@ -5364,6 +5392,8 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
+
+                    analyzer.debug_zhengma_data(df_clean)
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
