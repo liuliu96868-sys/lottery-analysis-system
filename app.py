@@ -1761,76 +1761,70 @@ class AnalysisEngine:
         self.normalizer = PlayCategoryNormalizer()
         self.seen_records = set()  # 用于记录已检测的记录
 
-    def debug_detailed_analysis(self, account, lottery, period, group):
-        """详细调试分析过程"""
-        print(f"\n=== 详细调试分析过程 ===")
+    def debug_zhengma_analysis(self, account, lottery, period, group):
+        """详细调试正码分析过程"""
+        print(f"\n=== 详细调试正码分析过程 ===")
         print(f"账户: {account}, 彩种: {lottery}, 期号: {period}")
         
-        # 显示所有记录
-        print("所有记录:")
-        for _, row in group.iterrows():
-            print(f"  玩法分类: '{row['玩法分类']}', 内容: '{row['内容']}'")
-        
-        # 调试龙虎分析
-        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
-        dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
-        
-        print(f"龙虎投注记录:")
-        for _, row in dragon_tiger_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            position = self._extract_dragon_tiger_position_complete(category, content)
-            dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            print(f"  分类: '{category}', 内容: '{content}', 位置: '{position}', 龙虎投注: {dragon_tiger}")
-        
-        # 调试正码波色分析
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
         
-        print(f"正码投注记录:")
+        print(f"找到 {len(zhengma_group)} 条正码记录:")
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
+            
+            # 测试位置提取
             position = self._normalize_zhengma_position_complete(category)
+            
+            # 测试波色提取
             waves = self._extract_wave_strict(content)
-            print(f"  分类: '{category}', 内容: '{content}', 位置: '{position}', 波色: {waves}")
+            
+            print(f"  原始分类: '{category}'")
+            print(f"  投注内容: '{content}'") 
+            print(f"  提取位置: '{position}'")
+            print(f"  提取波色: {waves}")
+            print(f"  ---")
         
-        print("=== 结束详细调试分析过程 ===\n")
+        print("=== 结束正码调试 ===\n")
 
     def _normalize_zhengma_position_complete(self, position):
-        """完全重写的正码位置标准化函数 - 修复版"""
+        """完全重写的正码位置标准化函数 - 终极修复版"""
         position_str = str(position).strip()
         
-        # 调试信息
-        print(f"正码位置标准化 - 输入: '{position_str}'")
+        print(f"🔍 正码位置标准化 - 开始处理: '{position_str}'")
         
-        # 精确的正码位置映射
+        # 精确的正码位置映射 - 优先级从高到低
         position_mapping = {
-            '正码一': ['正码一', '正1', '正码1', '正一', '正码一特', '正一特', '正码1特', '正码1-6_正码一'],
-            '正码二': ['正码二', '正2', '正码2', '正二', '正码二特', '正二特', '正码2特', '正码1-6_正码二'],
-            '正码三': ['正码三', '正3', '正码3', '正三', '正码三特', '正三特', '正码3特', '正码1-6_正码三'],
-            '正码四': ['正码四', '正4', '正码4', '正四', '正码四特', '正四特', '正码4特', '正码1-6_正码四'],
-            '正码五': ['正码五', '正5', '正码5', '正五', '正码五特', '正五特', '正码5特', '正码1-6_正码五'],
-            '正码六': ['正码六', '正6', '正码6', '正六', '正码六特', '正六特', '正码6特', '正码1-6_正码六']
+            '正码一': ['正码1-6_正码一', '正码一', '正1', '正码1', '正一'],
+            '正码二': ['正码1-6_正码二', '正码二', '正2', '正码2', '正二'],
+            '正码三': ['正码1-6_正码三', '正码三', '正3', '正码3', '正三'],
+            '正码四': ['正码1-6_正码四', '正码四', '正4', '正码4', '正四'],
+            '正码五': ['正码1-6_正码五', '正码五', '正5', '正码5', '正五'],
+            '正码六': ['正码1-6_正码六', '正码六', '正6', '正码6', '正六']
         }
         
-        # 精确匹配
+        # 第一轮：精确匹配（完全相等）
         for pos_name, keywords in position_mapping.items():
             for keyword in keywords:
-                if keyword == position_str:  # 完全匹配
-                    print(f"正码位置标准化 - 精确匹配: '{position_str}' -> '{pos_name}'")
-                    return pos_name
-                elif keyword in position_str:  # 包含匹配
-                    print(f"正码位置标准化 - 包含匹配: '{position_str}' -> '{pos_name}'")
+                if position_str == keyword:
+                    print(f"✅ 正码位置标准化 - 精确匹配: '{position_str}' -> '{pos_name}'")
                     return pos_name
         
-        # 处理通用正码1-6分类
-        if '正码1-6' in position_str and '正码1-6_' not in position_str:
-            print(f"正码位置标准化 - 通用正码1-6，使用默认: '正码一'")
-            return '正码一'  # 默认
+        # 第二轮：包含匹配
+        for pos_name, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in position_str:
+                    print(f"✅ 正码位置标准化 - 包含匹配: '{position_str}' -> '{pos_name}'")
+                    return pos_name
         
-        print(f"正码位置标准化 - 未找到匹配，使用默认: '正码一'")
-        return '正码一'  # 默认值
+        # 第三轮：处理通用分类
+        if position_str == '正码1-6':
+            print(f"🟡 正码位置标准化 - 通用正码1-6，使用默认: '正码一'")
+            return '正码一'
+        
+        print(f"❌ 正码位置标准化 - 未找到匹配，使用默认: '正码一' (输入: '{position_str}')")
+        return '正码一'
 
     def _extract_dragon_tiger_position_complete(self, category, content):
         """完全重写的龙虎位置提取函数 - 修复版"""
@@ -1971,13 +1965,17 @@ class AnalysisEngine:
         return '冠军'
 
     def _analyze_lhc_zhengma_wave_detailed_fixed(self, account, lottery, period, group, results):
-        """修复版：分析六合彩正码中的波色投注 - 确保位置独立分析"""
-        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+        """终极修复版：分析六合彩正码中的波色投注"""
+        print(f"\n🎯 开始分析正码波色 - 账户: {account}, 期号: {period}")
         
+        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
         
         if zhengma_group.empty:
+            print(f"❌ 没有找到正码记录")
             return
+        
+        print(f"📊 找到 {len(zhengma_group)} 条正码记录")
         
         # 为每个位置创建独立的波色集合
         position_waves = {
@@ -1989,9 +1987,13 @@ class AnalysisEngine:
             '正码六': set()
         }
         
-        for _, row in zhengma_group.iterrows():
+        for idx, (_, row) in enumerate(zhengma_group.iterrows()):
             content = str(row['内容'])
             category = str(row['玩法分类'])
+            
+            print(f"\n--- 处理第 {idx+1} 条记录 ---")
+            print(f"原始分类: '{category}'")
+            print(f"投注内容: '{content}'")
             
             # 使用修复后的位置提取方法
             position = self._normalize_zhengma_position_complete(category)
@@ -1999,18 +2001,23 @@ class AnalysisEngine:
             # 提取波色
             waves = self._extract_wave_strict(content)
             
-            # 调试信息
-            print(f"正码波色分析 - 分类: '{category}', 内容: '{content}', 位置: '{position}', 波色: {waves}")
+            print(f"最终分配 - 位置: '{position}', 波色: {waves}")
             
             # 只将波色添加到对应的位置
             if position in position_waves:
                 position_waves[position].update(waves)
+                print(f"✅ 已添加到位置 '{position}'")
+            else:
+                print(f"❌ 未知位置: '{position}'")
         
-        # 检查每个位置的波色全包情况（重要：只在同一个位置内检查）
+        # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
+        print(f"\n📋 最终位置波色统计:")
         for position, waves in position_waves.items():
+            print(f"  {position}: {waves}")
+            
             if traditional_waves.issubset(waves):
-                print(f"⚠️ 检测到 {position} 波色全包: {waves}")
+                print(f"🚨 检测到 {position} 波色全包!")
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -2025,7 +2032,9 @@ class AnalysisEngine:
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
             else:
-                print(f"✅ {position} 位置无波色全包: {waves}")
+                print(f"✅ {position} 位置无波色全包")
+        
+        print(f"🎯 正码波色分析完成\n")
 
     def _analyze_pk10_dragon_tiger_detailed_fixed(self, account, lottery, period, group, results):
         """修复版：PK10龙虎详细检测 - 确保位置独立分析"""
@@ -3032,14 +3041,13 @@ class AnalysisEngine:
         if len(df_target) == 0:
             return results
         
-        # 使用独立的尾数检测方法
-        self._analyze_lhc_tail_plays(df_target, results)
-        
-        # 其他检测方法
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            # 使用修复版的正码波色检测
+            # 先进行调试
+            self.debug_zhengma_analysis(account, lottery, period, group)
+            
+            # 然后进行分析
             self._analyze_lhc_zhengma_wave_detailed_fixed(account, lottery, period, group, results)
             
             # 其他检测方法保持不变
@@ -3946,18 +3954,31 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
    
     def _extract_wave_strict(self, content):
-        """严格提取波色 - 确保不会错误识别"""
+        """严格提取波色 - 终极修复版"""
         content_str = str(content).strip()
         waves = set()
         
-        # 精确匹配，避免部分匹配
-        if content_str == '红波' or '红波' in content_str.split(',') or '红波' in content_str.split('，'):
-            waves.add('红波')
-        if content_str == '蓝波' or '蓝波' in content_str.split(',') or '蓝波' in content_str.split('，'):
-            waves.add('蓝波')
-        if content_str == '绿波' or '绿波' in content_str.split(',') or '绿波' in content_str.split('，'):
-            waves.add('绿波')
+        print(f"🔍 波色提取 - 开始处理: '{content_str}'")
         
+        # 精确匹配波色关键词
+        wave_keywords = {
+            '红波': ['红波', '紅色波'],
+            '蓝波': ['蓝波', '藍波'], 
+            '绿波': ['绿波', '綠波']
+        }
+        
+        # 按逗号分割投注内容
+        bet_items = [item.strip() for item in content_str.split(',')]
+        
+        for item in bet_items:
+            for wave_name, keywords in wave_keywords.items():
+                for keyword in keywords:
+                    if keyword == item:  # 精确匹配
+                        print(f"✅ 波色提取 - 找到波色: '{item}' -> '{wave_name}'")
+                        waves.add(wave_name)
+                        break
+        
+        print(f"🔍 波色提取 - 最终结果: {waves}")
         return waves
   
     def _extract_wave_from_zhengma_content(self, content):
