@@ -4528,50 +4528,59 @@ class AnalysisEngine:
         """最终版六合彩正码位置标准化 - 精确处理正码1-6_正码三格式"""
         position_str = str(position).strip()
         
-        # 精确处理"正码1-6_正码三"格式
-        if '正码1-6_' in position_str:
-            # 提取具体位置部分
-            specific_part = position_str.replace('正码1-6_', '').strip()
-            position_mapping = {
-                '正码一': '正码一', '正码二': '正码二', '正码三': '正码三',
-                '正码四': '正码四', '正码五': '正码五', '正码六': '正码六',
-                '正码1': '正码一', '正码2': '正码二', '正码3': '正码三',
-                '正码4': '正码四', '正码5': '正码五', '正码6': '正码六'
-            }
-            for key, value in position_mapping.items():
-                if key == specific_part:  # 精确匹配
-                    return value
-            # 如果精确匹配失败，尝试包含匹配
-            for key, value in position_mapping.items():
-                if key in specific_part:
-                    return value
-            return '正码一'  # 默认
+        # 精确处理"正码1-6_正码三"格式 - 使用正则表达式确保精确匹配
+        import re
         
-        # 原有的标准化逻辑
-        position_mapping = {
-            '正码一': '正码一', '正1': '正码一', '正码1': '正码一', '正一': '正码一',
-            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', '正二': '正码二',
-            '正码三': '正码三', '正3': '正码三', '正码3': '正码三', '正三': '正码三',
-            '正码四': '正码四', '正4': '正码四', '正码4': '正码四', '正四': '正码四',
-            '正码五': '正码五', '正5': '正码五', '正码5': '正码五', '正五': '正码五',
-            '正码六': '正码六', '正6': '正码六', '正码6': '正码六', '正六': '正码六',
-            # 处理带冒号的格式
-            '正码一:': '正码一', '正码二:': '正码二', '正码三:': '正码三',
-            '正码四:': '正码四', '正码五:': '正码五', '正码六:': '正码六',
-            # 默认映射
-            '未知位置': '正码一'
+        # 方法1: 正则表达式精确匹配 "正码1-6_正码X" 格式
+        pattern1 = r'正码1-6_正码([一二三四五六123456])'
+        match1 = re.search(pattern1, position_str)
+        if match1:
+            digit = match1.group(1)
+            digit_mapping = {
+                '一': '正码一', '二': '正码二', '三': '正码三',
+                '四': '正码四', '五': '正码五', '六': '正码六',
+                '1': '正码一', '2': '正码二', '3': '正码三',
+                '4': '正码四', '5': '正码五', '6': '正码六'
+            }
+            if digit in digit_mapping:
+                return digit_mapping[digit]
+        
+        # 方法2: 正则表达式匹配其他正码格式
+        pattern2 = r'正码([一二三四五六123456])'
+        match2 = re.search(pattern2, position_str)
+        if match2:
+            digit = match2.group(1)
+            digit_mapping = {
+                '一': '正码一', '二': '正码二', '三': '正码三',
+                '四': '正码四', '五': '正码五', '六': '正码六',
+                '1': '正码一', '2': '正码二', '3': '正码三',
+                '4': '正码四', '5': '正码五', '6': '正码六'
+            }
+            if digit in digit_mapping:
+                return digit_mapping[digit]
+        
+        # 方法3: 直接精确匹配
+        exact_mapping = {
+            '正码一': '正码一', '正码二': '正码二', '正码三': '正码三',
+            '正码四': '正码四', '正码五': '正码五', '正码六': '正码六',
+            '正码1': '正码一', '正码2': '正码二', '正码3': '正码三',
+            '正码4': '正码四', '正码5': '正码五', '正码6': '正码六',
+            '正1': '正码一', '正2': '正码二', '正3': '正码三',
+            '正4': '正码四', '正5': '正码五', '正6': '正码六',
+            '正一': '正码一', '正二': '正码二', '正三': '正码三',
+            '正四': '正码四', '正五': '正码五', '正六': '正码六'
         }
         
-        # 直接映射
-        if position_str in position_mapping:
-            return position_mapping[position_str]
+        # 直接精确匹配
+        if position_str in exact_mapping:
+            return exact_mapping[position_str]
         
-        # 模糊匹配
-        for key, value in position_mapping.items():
+        # 包含匹配（作为后备）
+        for key, value in exact_mapping.items():
             if key in position_str:
                 return value
         
-        # 如果包含数字，尝试提取数字并映射
+        # 数字匹配（最后的手段）
         digit_match = re.search(r'\d', position_str)
         if digit_match:
             digit = digit_match.group()
@@ -4582,22 +4591,25 @@ class AnalysisEngine:
             if digit in digit_mapping:
                 return digit_mapping[digit]
         
-        return position_str
+        # 中文数字匹配
+        chinese_digits = {'一': '正码一', '二': '正码二', '三': '正码三', 
+                         '四': '正码四', '五': '正码五', '六': '正码六'}
+        for cn_digit, position_name in chinese_digits.items():
+            if cn_digit in position_str:
+                return position_name
+        
+        # 默认返回正码一
+        return '正码一'
 
     def _extract_dragon_tiger_position_enhanced_final(self, category, content):
         """最终版龙虎位置提取 - 精确处理带空格的位置"""
         category_str = str(category).strip()
-        content_str = str(content)
         
-        # 首先处理分类名称中的位置
-        # 清理空格和特殊空格
-        clean_category = category_str.replace(' ', '').replace(' ', '')  # 普通空格和特殊空格
-        
-        # 精确的位置映射
+        # 精确处理带空格的位置名称
         position_mapping = {
-            '冠军': ['冠军', '冠军', '前一', '第1名', '第一名', '1st'],
-            '亚军': ['亚军', '第2名', '第二名', '2nd'],
-            '第三名': ['第三名', '季军', '第3名', '三名', '3rd'],
+            '冠军': ['冠军', '冠 军', '冠 军', '第1名', '第一名', '1st', '前一'],
+            '亚军': ['亚军', '亚 军', '亚 军', '第2名', '第二名', '2nd'],
+            '第三名': ['第三名', '季军', '季 军', '季 军', '第3名', '三名', '3rd'],
             '第四名': ['第四名', '第4名', '四名', '4th'],
             '第五名': ['第五名', '第5名', '五名', '5th'],
             '第六名': ['第六名', '第6名', '六名', '6th'],
@@ -4607,20 +4619,33 @@ class AnalysisEngine:
             '第十名': ['第十名', '第10名', '十名', '10th']
         }
         
-        # 在分类名称中查找位置
+        # 首先在分类名称中精确查找
         for position, keywords in position_mapping.items():
             for keyword in keywords:
-                if keyword in clean_category:
+                # 精确匹配整个分类名称或分类名称中包含关键词
+                if keyword == category_str or keyword in category_str:
                     return position
         
         # 如果分类中没有明确位置，从内容中查找
-        clean_content = content_str.replace(' ', '').replace(' ', '')
+        content_str = str(content)
         for position, keywords in position_mapping.items():
             for keyword in keywords:
-                if keyword in clean_content:
+                if keyword in content_str:
                     return position
         
-        # 默认返回冠军
+        # 如果还是无法确定，根据分类名称的特征推断
+        if '亚' in category_str or '2' in category_str:
+            return '亚军'
+        elif '冠' in category_str or '1' in category_str or '前一' in category_str:
+            return '冠军' 
+        elif '季' in category_str or '3' in category_str:
+            return '第三名'
+        elif '四' in category_str or '4' in category_str:
+            return '第四名'
+        elif '五' in category_str or '5' in category_str:
+            return '第五名'
+        
+        # 最后才返回冠军作为默认
         return '冠军'
 
     def _analyze_detailed_category_patterns(self, account, lottery, period, group, results, 
