@@ -1855,25 +1855,26 @@ class AnalysisEngine:
         return df
 
     def normalize_play_category_enhanced(self, content, current_category, lottery_type):
-        """增强版玩法分类标准化 - 结合内容和位置推断"""
+        """增强版玩法分类标准化 - 保守版本，不影响现有检测"""
         content_str = str(content)
         
-        # 使用增强的位置推断
-        inferred_position = ContentParser.infer_position_enhanced(
-            content, lottery_type, current_category
-        )
+        # 首先使用原有的标准化方法
+        normalized_category = self.normalizer.normalize_category(current_category)
         
-        # 使用增强的玩法分类标准化
-        normalized_category = self.normalizer.normalize_category_enhanced(
-            current_category, content
-        )
+        # 只在特定情况下使用增强推断
+        if lottery_type == 'LHC':
+            # 对于正码1-6格式，尝试提取更具体的位置
+            if normalized_category == '正码1-6' and '_' in content_str:
+                inferred_position = self._extract_position_from_zhengma_category_safe(current_category)
+                if inferred_position != '未知位置':
+                    return inferred_position
         
-        # 如果推断出具体位置且当前分类比较通用，使用更具体的分类
-        if inferred_position and inferred_position != '未知位置':
-            if normalized_category in ['正码', '正特'] and '正码' in inferred_position:
-                return inferred_position
-            elif normalized_category == '龙虎' and inferred_position in ['冠军', '亚军', '季军']:
-                return f'龙虎_{inferred_position}'
+        elif lottery_type == 'PK10':
+            # 对于龙虎，确保位置识别准确
+            if normalized_category == '龙虎':
+                inferred_position = ContentParser.infer_position_from_content(content, 'PK10')
+                if inferred_position in ['冠军', '亚军', '季军']:
+                    return f'龙虎_{inferred_position}'
         
         return normalized_category
     
@@ -3156,12 +3157,11 @@ class AnalysisEngine:
         return category_str
     
     def _analyze_lhc_zhengte(self, account, lottery, period, group, results):
-        """分析六合彩正特玩法 - 改进版，精确识别具体位置"""
+        """分析六合彩正特玩法 - 恢复原有逻辑"""
         zhengte_categories = ['正特', '正1特', '正2特', '正3特', '正4特', '正5特', '正6特']
         
-        # 按具体位置分别统计
+        # 按具体位置分别统计 - 使用原有逻辑
         position_numbers = defaultdict(set)
-        position_bets = defaultdict(lambda: defaultdict(set))
         
         for category in zhengte_categories:
             category_group = group[group['玩法分类'] == category]
@@ -3170,7 +3170,7 @@ class AnalysisEngine:
                 content = str(row['内容'])
                 category = str(row['玩法分类'])
                 
-                # 精确识别具体位置
+                # 精确识别具体位置 - 使用原有方法
                 specific_position = self._extract_specific_zhengte_position(content, category)
                 
                 clean_content = self.data_analyzer.parse_lhc_special_content(content)
@@ -3178,13 +3178,8 @@ class AnalysisEngine:
                 # 提取号码
                 numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
                 position_numbers[specific_position].update(numbers)
-                
-                # 提取两面玩法内容
-                two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
-                for bet_type, bets in two_sides_analysis.items():
-                    position_bets[specific_position][bet_type].update(bets)
         
-        # 对每个具体位置分别进行检测
+        # 对每个具体位置分别进行检测 - 原有逻辑
         for position, numbers in position_numbers.items():
             # 多号码检测
             if len(numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
@@ -3760,8 +3755,8 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
 
     def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 修复版本"""
-        # 正码相关的玩法分类
+        """分析六合彩正码中的波色投注 - 精确修复版本"""
+        # 正码相关的玩法分类 - 保持不变
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
@@ -3769,24 +3764,31 @@ class AnalysisEngine:
         if zhengma_group.empty:
             return
         
-        # 修复：按具体位置收集波色投注
+        # 修复：使用更精确的位置提取方法
         position_waves = defaultdict(set)
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 修复：从玩法分类中精确提取位置，而不是从内容中
-            position = self._extract_position_from_zhengma_category(category)
+            # 修复：使用原有的位置推断方法，确保正5特等不被影响
+            inferred_position = ContentParser.infer_position_from_content(content, 'LHC')
+            
+            # 如果原有方法返回未知位置，再尝试从分类中提取
+            if inferred_position == '未知位置':
+                inferred_position = self._extract_position_from_zhengma_category_safe(category)
             
             # 提取波色
             waves = self.data_analyzer.extract_wave_color_from_content(content)
-            position_waves[position].update(waves)
+            
+            # 只添加有效的位置和波色
+            if inferred_position != '未知位置' and waves:
+                position_waves[inferred_position].update(waves)
         
         # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
         for position, waves in position_waves.items():
-            # 修复：只检查该位置本身的波色，不合并其他位置
+            # 只检查该位置本身的波色
             if traditional_waves.issubset(waves):
                 record = {
                     '会员账号': account,
@@ -3802,41 +3804,29 @@ class AnalysisEngine:
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
     
-    def _extract_position_from_zhengma_category(self, category):
-        """从六合彩玩法分类中精确提取位置 - 修复版本"""
+    def _extract_position_from_zhengma_category_safe(self, category):
+        """安全地从六合彩玩法分类中提取位置 - 不影响正特检测"""
         category_str = str(category).strip()
         
-        # 精确的位置映射
-        position_mapping = {
-            '正码一': ['正码一', '正码1', '正1', '正一'],
-            '正码二': ['正码二', '正码2', '正2', '正二'], 
-            '正码三': ['正码三', '正码3', '正3', '正三'],
-            '正码四': ['正码四', '正码4', '正4', '正四'],
-            '正码五': ['正码五', '正码5', '正5', '正五'],
-            '正码六': ['正码六', '正码6', '正6', '正六']
-        }
-        
-        # 首先检查完整匹配
-        for position, keywords in position_mapping.items():
-            for keyword in keywords:
-                if keyword == category_str:
-                    return position
-        
-        # 然后检查包含关系
-        for position, keywords in position_mapping.items():
-            for keyword in keywords:
-                if keyword in category_str:
-                    return position
-        
-        # 处理 "正码1-6_正码一" 这种格式
-        if '_' in category_str:
+        # 只处理明确的正码1-6格式，不影响正特
+        if '正码1-6' in category_str and '_' in category_str:
             parts = category_str.split('_')
             if len(parts) > 1:
                 position_part = parts[1].strip()
+                
+                # 只映射明确的正码位置
+                position_mapping = {
+                    '正码一': '正码一',
+                    '正码二': '正码二',
+                    '正码三': '正码三', 
+                    '正码四': '正码四',
+                    '正码五': '正码五',
+                    '正码六': '正码六'
+                }
+                
                 for position, keywords in position_mapping.items():
-                    for keyword in keywords:
-                        if keyword in position_part:
-                            return position
+                    if position in position_part:
+                        return position
         
         return '未知位置'
 
