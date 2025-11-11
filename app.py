@@ -2352,7 +2352,7 @@ class AnalysisEngine:
         return None  # 返回None而不是未知位置，避免误判
 
     def _analyze_pk10_dragon_tiger_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的PK10龙虎检测 - 增强空格处理"""
+        """综合考虑玩法和内容的PK10龙虎检测 - 修复位置识别"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
@@ -2363,15 +2363,31 @@ class AnalysisEngine:
             content = normalize_spaces(str(row['内容']))
             category = normalize_spaces(str(row['玩法分类']))
             
-            # 综合考虑玩法和内容推断位置
+            # 修复：直接从玩法分类中提取位置
+            position = None
             if '冠军' in category or '前一' in category:
                 position = '冠军'
             elif '亚军' in category:
                 position = '亚军'
             elif '季军' in category:
                 position = '季军'
-            else:
-                # 从内容中推断
+            elif '第四名' in category:
+                position = '第四名'
+            elif '第五名' in category:
+                position = '第五名'
+            elif '第六名' in category:
+                position = '第六名'
+            elif '第七名' in category:
+                position = '第七名'
+            elif '第八名' in category:
+                position = '第八名'
+            elif '第九名' in category:
+                position = '第九名'
+            elif '第十名' in category:
+                position = '第十名'
+            
+            # 如果从分类中无法提取位置，再从内容中推断
+            if not position:
                 position = ContentParser.infer_position_comprehensive(content, category, 'PK10')
             
             # 提取龙虎投注
@@ -2379,7 +2395,7 @@ class AnalysisEngine:
             if position and dragon_tiger:
                 position_bets[position].update(dragon_tiger)
         
-        # 检查矛盾
+        # 检查矛盾 - 只在同一位置同时投注龙和虎时才报告
         for position, bets in position_bets.items():
             if position and '龙' in bets and '虎' in bets:
                 record = {
@@ -3871,7 +3887,7 @@ class AnalysisEngine:
         return '未知位置'
 
     def _analyze_lhc_zhengma_wave_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的六合彩正码波色检测"""
+        """综合考虑玩法和内容的六合彩正码波色检测 - 修复位置识别"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
@@ -3885,19 +3901,108 @@ class AnalysisEngine:
             content = normalize_spaces(str(row['内容']))
             category = normalize_spaces(str(row['玩法分类']))
             
-            # 综合考虑玩法和内容推断位置
-            position = ContentParser.infer_position_comprehensive(content, category, 'LHC')
+            # 修复：从玩法分类中直接提取位置
+            position = None
+            
+            # 处理"正码1-6_正码一"这种格式
+            if '正码1-6' in category and '_' in category:
+                parts = category.split('_')
+                if len(parts) > 1:
+                    position_part = parts[1].strip()
+                    if '正码一' in position_part or '正1' in position_part:
+                        position = '正码一'
+                    elif '正码二' in position_part or '正2' in position_part:
+                        position = '正码二'
+                    elif '正码三' in position_part or '正3' in position_part:
+                        position = '正码三'
+                    elif '正码四' in position_part or '正4' in position_part:
+                        position = '正码四'
+                    elif '正码五' in position_part or '正5' in position_part:
+                        position = '正码五'
+                    elif '正码六' in position_part or '正6' in position_part:
+                        position = '正码六'
+            
+            # 如果从分类中无法提取位置，使用综合推断
+            if not position:
+                position = ContentParser.infer_position_comprehensive(content, category, 'LHC')
             
             # 提取波色
             waves = self.data_analyzer.extract_wave_color_from_content(content)
             
-            if position != '未知位置' and waves:
+            if position and position != '未知位置' and waves:
                 position_waves[position].update(waves)
         
         # 检查波色全包
         traditional_waves = {'红波', '蓝波', '绿波'}
         for position, waves in position_waves.items():
             if traditional_waves.issubset(waves):
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': f'{position}波色全包',
+                    '位置': position,
+                    '违规类型': f'{position}波色全包',
+                    '投注波色数': len(traditional_waves),
+                    '投注波色': sorted(list(traditional_waves)),
+                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                    '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
+                }
+                self._add_unique_result(results, f'{position}波色全包', record)
+
+    def _analyze_lhc_zhengma_wave_comprehensive_debug(self, account, lottery, period, group, results):
+        """带调试信息的正码波色检测"""
+        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+        
+        zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
+        
+        if zhengma_group.empty:
+            st.warning(f"没有找到正码投注记录 - {account} {period}")
+            return
+        
+        # 调试信息
+        debug_info = []
+        position_waves = defaultdict(set)
+        
+        for _, row in zhengma_group.iterrows():
+            content = normalize_spaces(str(row['内容']))
+            category = normalize_spaces(str(row['玩法分类']))
+            
+            # 记录原始信息
+            original_info = {
+                '账号': account,
+                '期号': period, 
+                '原分类': category,
+                '内容': content,
+                '推断位置': '待计算',
+                '提取波色': '待计算'
+            }
+            
+            # 位置推断
+            position = ContentParser.infer_position_comprehensive(content, category, 'LHC')
+            original_info['推断位置'] = position
+            
+            # 波色提取
+            waves = self.data_analyzer.extract_wave_color_from_content(content)
+            original_info['提取波色'] = ', '.join(waves) if waves else '无'
+            
+            debug_info.append(original_info)
+            
+            if position and position != '未知位置' and waves:
+                position_waves[position].update(waves)
+        
+        # 显示调试信息
+        if debug_info:
+            st.write(f"**正码波色检测调试信息 - {account} {period}:**")
+            for info in debug_info:
+                st.write(f"- 原分类: {info['原分类']}, 内容: {info['内容']}, 推断位置: {info['推断位置']}, 波色: {info['提取波色']}")
+        
+        # 检查波色全包
+        traditional_waves = {'红波', '蓝波', '绿波'}
+        for position, waves in position_waves.items():
+            st.write(f"位置 {position} 的波色: {waves}")
+            if traditional_waves.issubset(waves):
+                st.success(f"检测到 {position} 波色全包!")
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
