@@ -2272,59 +2272,35 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
     
     def _extract_dragon_tiger_position_direct(self, category, content):
-        """直接提取龙虎位置 - 修复版本"""
+        """直接提取龙虎位置 - 最终修复版本"""
         category_str = str(category).strip()
-        content_str = str(content)
         
-        # 清理空格和特殊字符
-        category_clean = category_str.replace(' ', '').replace(' ', '').replace('_', '')
-        
-        # 直接映射 - 精确匹配
-        if '冠军' in category_clean or '冠' in category_clean or '前一' in category_clean:
+        # 直接基于分类名称映射
+        if '冠军' in category_str or '冠' in category_str or '前一' in category_str:
             return '冠军'
-        elif '亚军' in category_clean or '亚' in category_clean:
+        elif '亚军' in category_str or '亚' in category_str:
             return '亚军'
-        elif '季军' in category_clean or '季' in category_clean or '第三名' in category_clean or '第3名' in category_clean:
+        elif '季军' in category_str or '季' in category_str or '第三名' in category_str:
             return '第三名'
-        elif '第四名' in category_clean or '第四' in category_clean or '第4名' in category_clean:
+        elif '第四名' in category_str or '第四' in category_str:
             return '第四名'
-        elif '第五名' in category_clean or '第五' in category_clean or '第5名' in category_clean:
+        elif '第五名' in category_str or '第五' in category_str:
             return '第五名'
-        elif '第六名' in category_clean or '第六' in category_clean or '第6名' in category_clean:
+        elif '第六名' in category_str or '第六' in category_str:
             return '第六名'
-        elif '第七名' in category_clean or '第七' in category_clean or '第7名' in category_clean:
+        elif '第七名' in category_str or '第七' in category_str:
             return '第七名'
-        elif '第八名' in category_clean or '第八' in category_clean or '第8名' in category_clean:
+        elif '第八名' in category_str or '第八' in category_str:
             return '第八名'
-        elif '第九名' in category_clean or '第九' in category_clean or '第9名' in category_clean:
+        elif '第九名' in category_str or '第九' in category_str:
             return '第九名'
-        elif '第十名' in category_clean or '第十' in category_clean or '第10名' in category_clean:
+        elif '第十名' in category_str or '第十' in category_str:
             return '第十名'
-        
-        # 如果无法从分类确定，尝试从内容推断
-        content_clean = content_str.replace(' ', '').replace(' ', '')
-        if '冠军' in content_clean or '冠' in content_clean or '前一' in content_clean:
+        elif '龙虎' in category_str:
+            # 对于通用龙虎分类，默认返回冠军
             return '冠军'
-        elif '亚军' in content_clean or '亚' in content_clean:
-            return '亚军'
-        elif '季军' in content_clean or '季' in content_clean or '第三名' in content_clean or '第3名' in content_clean:
-            return '第三名'
-        elif '第四名' in content_clean or '第四' in content_clean or '第4名' in content_clean:
-            return '第四名'
-        elif '第五名' in content_clean or '第五' in content_clean or '第5名' in content_clean:
-            return '第五名'
-        elif '第六名' in content_clean or '第六' in content_clean or '第6名' in content_clean:
-            return '第六名'
-        elif '第七名' in content_clean or '第七' in content_clean or '第7名' in content_clean:
-            return '第七名'
-        elif '第八名' in content_clean or '第八' in content_clean or '第8名' in content_clean:
-            return '第八名'
-        elif '第九名' in content_clean or '第九' in content_clean or '第9名' in content_clean:
-            return '第九名'
-        elif '第十名' in content_clean or '第十' in content_clean or '第10名' in content_clean:
-            return '第十名'
         
-        # 默认返回冠军
+        # 默认
         return '冠军'
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
@@ -3700,7 +3676,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
 
     def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 修复波色聚合问题"""
+        """分析六合彩正码中的波色投注 - 彻底重写版本"""
         # 正码相关的玩法分类
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
@@ -3709,25 +3685,50 @@ class AnalysisEngine:
         if zhengma_group.empty:
             return
         
-        # 收集每个位置的波色投注 - 使用更精确的位置判断
-        position_waves = defaultdict(set)
+        # 为每个位置创建独立的波色集合
+        position_waves = {
+            '正码一': set(),
+            '正码二': set(),
+            '正码三': set(),
+            '正码四': set(),
+            '正码五': set(),
+            '正码六': set()
+        }
+        
+        # 记录处理过程用于调试
+        debug_info = []
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 直接提取位置，不通过复杂解析器
-            position = self._extract_zhengma_position_direct(category, content)
+            # 提取位置 - 使用更严格的方法
+            position = self._extract_zhengma_position_strict(category, content)
             
-            # 从内容中提取波色 - 只提取当前记录的波色
-            waves = self._extract_wave_from_zhengma_content_single(content)
-            if waves:
+            # 提取波色 - 使用更严格的方法
+            waves = self._extract_wave_strict(content)
+            
+            # 记录调试信息
+            debug_info.append(f"分类: {category} -> 位置: {position}, 波色: {waves}, 内容: {content}")
+            
+            # 只将波色添加到对应的位置
+            if position in position_waves:
                 position_waves[position].update(waves)
+        
+        # 输出调试信息
+        print(f"=== 正码波色检测调试信息 ===")
+        print(f"账号: {account}, 期号: {period}")
+        for info in debug_info:
+            print(info)
+        print(f"各位置波色汇总:")
+        for position, waves in position_waves.items():
+            if waves:
+                print(f"  {position}: {waves}")
+        print("=========================")
         
         # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
         for position, waves in position_waves.items():
-            # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
             if traditional_waves.issubset(waves):
                 record = {
                     '会员账号': account,
@@ -3743,95 +3744,54 @@ class AnalysisEngine:
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
     
-    def _extract_zhengma_position_direct(self, category, content):
-        """直接提取正码位置 - 修复版本，基于原始分类"""
+    def _extract_zhengma_position_strict(self, category, content):
+        """严格提取正码位置 - 确保位置不会混淆"""
         category_str = str(category).strip()
-        content_str = str(content)
         
-        # 调试信息 - 显示原始分类
-        print(f"调试-正码位置: 原始分类: {category_str}, 内容: {content_str}")
-        
-        # 首先检查是否是"正码1-6_正码X"格式
-        if '正码1-6_' in category_str:
-            # 提取具体位置部分
-            specific_part = category_str.replace('正码1-6_', '').strip()
-            print(f"调试-正码位置: 提取具体部分: {specific_part}")
-            
-            # 直接映射具体位置
-            position_mapping = {
-                '正码一': '正码一', '正码1': '正码一', '正一': '正码一',
-                '正码二': '正码二', '正码2': '正码二', '正二': '正码二',
-                '正码三': '正码三', '正码3': '正码三', '正三': '正码三',
-                '正码四': '正码四', '正码4': '正码四', '正四': '正码四',
-                '正码五': '正码五', '正码5': '正码五', '正五': '正码五',
-                '正码六': '正码六', '正码6': '正码六', '正六': '正码六'
-            }
-            
-            for key, value in position_mapping.items():
-                if key in specific_part:
-                    print(f"调试-正码位置: 映射到: {value}")
-                    return value
-        
-        # 如果上面没有匹配，使用原有的逻辑
-        position_mapping = {
-            '正码一': ['正码一', '正码1', '正1', '正一'],
-            '正码二': ['正码二', '正码2', '正2', '正二'],
-            '正码三': ['正码三', '正码3', '正3', '正三'],
-            '正码四': ['正码四', '正码4', '正4', '正四'],
-            '正码五': ['正码五', '正码5', '正5', '正五'],
-            '正码六': ['正码六', '正码6', '正6', '正六']
-        }
-        
-        # 首先检查分类本身是否已经是具体位置
-        for position, keywords in position_mapping.items():
-            for keyword in keywords:
-                if keyword in category_str:
-                    print(f"调试-正码位置: 分类匹配到: {position}")
-                    return position
-        
-        # 如果分类是"正码"或"正码1-6"，从内容中提取具体位置
-        if category_str in ['正码', '正码1-6']:
-            for position, keywords in position_mapping.items():
-                for keyword in keywords:
-                    if keyword in content_str:
-                        print(f"调试-正码位置: 内容匹配到: {position}")
-                        return position
-            
-            # 如果内容中包含数字，尝试推断位置
-            if '正码一' in content_str or '正码1' in content_str or '正1' in content_str:
+        # 直接基于分类名称映射，不依赖内容
+        if '正码1-6_正码一' in category_str or '正码一' in category_str:
+            return '正码一'
+        elif '正码1-6_正码二' in category_str or '正码二' in category_str:
+            return '正码二'
+        elif '正码1-6_正码三' in category_str or '正码三' in category_str:
+            return '正码三'
+        elif '正码1-6_正码四' in category_str or '正码四' in category_str:
+            return '正码四'
+        elif '正码1-6_正码五' in category_str or '正码五' in category_str:
+            return '正码五'
+        elif '正码1-6_正码六' in category_str or '正码六' in category_str:
+            return '正码六'
+        elif '正码1-6' in category_str or '正码' in category_str:
+            # 对于通用分类，尝试从内容中推断
+            content_str = str(content)
+            if '正码一' in content_str or '正码1' in content_str:
                 return '正码一'
-            elif '正码二' in content_str or '正码2' in content_str or '正2' in content_str:
+            elif '正码二' in content_str or '正码2' in content_str:
                 return '正码二'
-            elif '正码三' in content_str or '正码3' in content_str or '正3' in content_str:
+            elif '正码三' in content_str or '正码3' in content_str:
                 return '正码三'
-            elif '正码四' in content_str or '正码4' in content_str or '正4' in content_str:
+            elif '正码四' in content_str or '正码4' in content_str:
                 return '正码四'
-            elif '正码五' in content_str or '正码5' in content_str or '正5' in content_str:
+            elif '正码五' in content_str or '正码5' in content_str:
                 return '正码五'
-            elif '正码六' in content_str or '正码6' in content_str or '正6' in content_str:
+            elif '正码六' in content_str or '正码6' in content_str:
                 return '正码六'
         
-        print(f"调试-正码位置: 使用默认位置: 正码一")
-        # 默认返回第一个位置
+        # 默认
         return '正码一'
     
-    def _extract_wave_from_zhengma_content_single(self, content):
-        """从正码内容中提取波色 - 单条记录版本"""
+    def _extract_wave_strict(self, content):
+        """严格提取波色 - 确保不会错误识别"""
         content_str = str(content).strip()
         waves = set()
         
-        # 直接匹配波色关键词，不分割内容
-        wave_keywords = {
-            '红波': ['红波', '紅色波'],
-            '蓝波': ['蓝波', '藍波'], 
-            '绿波': ['绿波', '綠波']
-        }
-        
-        for wave_name, keywords in wave_keywords.items():
-            for keyword in keywords:
-                if keyword in content_str:
-                    waves.add(wave_name)
-                    break  # 找到一个就跳出内层循环
+        # 精确匹配，避免部分匹配
+        if content_str == '红波' or '红波' in content_str.split(',') or '红波' in content_str.split('，'):
+            waves.add('红波')
+        if content_str == '蓝波' or '蓝波' in content_str.split(',') or '蓝波' in content_str.split('，'):
+            waves.add('蓝波')
+        if content_str == '绿波' or '绿波' in content_str.split(',') or '绿波' in content_str.split('，'):
+            waves.add('绿波')
         
         return waves
     
