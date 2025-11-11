@@ -11,6 +11,17 @@ import warnings
 import time
 warnings.filterwarnings('ignore')
 
+def normalize_spaces(text):
+    """统一处理各种空格字符"""
+    if not isinstance(text, str):
+        text = str(text)
+    
+    # 处理普通空格、全角空格、多个连续空格
+    text = text.replace(' ', ' ')  # 全角空格转半角
+    text = text.replace('　', ' ')  # 全角空格转半角
+    text = ' '.join(text.split())  # 合并多个连续空格为单个空格
+    return text.strip()
+
 # 设置页面
 st.set_page_config(
     page_title="智能彩票分析检测系统",
@@ -334,7 +345,7 @@ class DataProcessor:
                 df_clean = df_clean.rename(columns=manual_mapping)
                 st.info(f"手动重命名后的列: {list(df_clean.columns)}")
             
-            # 数据清理
+            # 数据清理 - 增强空格处理
             initial_count = len(df_clean)
             df_clean = df_clean.dropna(subset=[col for col in self.required_columns if col in df_clean.columns])
             df_clean = df_clean.dropna(axis=1, how='all')
@@ -343,12 +354,12 @@ class DataProcessor:
             for col in self.required_columns:
                 if col in df_clean.columns:
                     if col == '会员账号':
-                        # 特别处理会员账号：确保不丢失任何字符
+                        # 特别处理会员账号：确保不丢失任何字符，但处理空格
                         df_clean[col] = df_clean[col].apply(
-                            lambda x: str(x) if pd.notna(x) else ''
+                            lambda x: normalize_spaces(str(x)) if pd.notna(x) else ''
                         )
                     else:
-                        df_clean[col] = df_clean[col].astype(str).str.strip()
+                        df_clean[col] = df_clean[col].astype(str).apply(normalize_spaces)
             
             # 修复期号格式：去掉.0 - 改进：确保转换为字符串
             if '期号' in df_clean.columns:
@@ -794,28 +805,34 @@ class ContentParser:
         return '未知位置'
 
     @staticmethod
-    def infer_position_enhanced(content, lottery_type, current_category):
-        """增强版位置推断 - 修复版本"""
-        content_str = str(content)
-        category_str = str(current_category)
+    def infer_position_comprehensive(content, category, lottery_type):
+        """综合考虑玩法和投注内容的位置推断 - 增强空格处理"""
+        # 统一处理空格
+        content_str = normalize_spaces(content)
+        category_str = normalize_spaces(category)
         
-        # 处理空格问题
-        category_clean = category_str.replace(' ', '').replace(' ', '')
-        content_clean = content_str.replace(' ', '').replace(' ', '')
-        
-        # 彩种特定的位置关键词映射
+        # 修正的彩种特定位置关键词映射
         position_mappings = {
             'LHC': {
-                '正码一': ['正码一', '正1', '正码1', '正一', '正码一特', '正1特'],
-                '正码二': ['正码二', '正2', '正码2', '正二', '正码二特', '正2特'],
-                '正码三': ['正码三', '正3', '正码3', '正三', '正码三特', '正3特'],
-                '正码四': ['正码四', '正4', '正码4', '正四', '正码四特', '正4特'],
-                '正码五': ['正码五', '正5', '正码5', '正五', '正码五特', '正5特'],
-                '正码六': ['正码六', '正6', '正码6', '正六', '正码六特', '正6特']
+                # 正码位置映射
+                '正码一': ['正码一', '正1', '正码1', '正一'],
+                '正码二': ['正码二', '正2', '正码2', '正二'],
+                '正码三': ['正码三', '正3', '正码3', '正三'],
+                '正码四': ['正码四', '正4', '正码4', '正四'],
+                '正码五': ['正码五', '正5', '正码5', '正五'],
+                '正码六': ['正码六', '正6', '正码6', '正六'],
+                
+                # 正特位置映射 - 独立
+                '正1特': ['正码一特', '正1特'],
+                '正2特': ['正码二特', '正2特'],
+                '正3特': ['正码三特', '正3特'],
+                '正4特': ['正码四特', '正4特'],
+                '正5特': ['正码五特', '正5特'],
+                '正6特': ['正码六特', '正6特']
             },
             'PK10': {
-                '冠军': ['冠军', '第1名', '第一名', '前一', '1st', '1'],
-                '亚军': ['亚军', '第2名', '第二名', '2nd', '2'],
+                '冠军': ['冠军', '冠 军', '冠  军', '第1名', '第一名', '前一', '1st', '1'],
+                '亚军': ['亚军', '亚 军', '亚  军', '第2名', '第二名', '2nd', '2'],
                 '第三名': ['第三名', '第3名', '季军', '3rd', '3'],
                 '第四名': ['第四名', '第4名', '4th', '4'],
                 '第五名': ['第五名', '第5名', '5th', '5'],
@@ -827,22 +844,24 @@ class ContentParser:
             }
         }
         
-        # 获取对应彩种的映射
         mapping = position_mappings.get(lottery_type, {})
         
-        # 首先从玩法分类中查找位置关键词（优先级更高）
+        # 策略1：优先从玩法分类中提取位置（更可靠）
         for position, keywords in mapping.items():
             for keyword in keywords:
-                if keyword in category_clean:
+                # 使用标准化后的关键词进行比较
+                normalized_keyword = normalize_spaces(keyword)
+                if normalized_keyword in category_str:
                     return position
         
-        # 然后从内容中查找位置关键词
+        # 策略2：从投注内容中提取位置
         for position, keywords in mapping.items():
             for keyword in keywords:
-                if keyword in content_clean:
+                normalized_keyword = normalize_spaces(keyword)
+                if normalized_keyword in content_str:
                     return position
         
-        # 使用原有的推断方法作为后备
+        # 策略3：使用原有的推断方法
         return ContentParser.infer_position_from_content(content, lottery_type)
 
 # ==================== 数据分析类 ====================
@@ -915,8 +934,8 @@ class DataAnalyzer:
         return list(set(tails))
     
     def extract_size_parity_from_content(self, content):
-        """从内容中提取大小单双本"""
-        content_str = str(content)
+        """从内容中提取大小单双 - 增强空格处理"""
+        content_str = normalize_spaces(str(content))
         size_parity = []
         
         # 使用更精确的匹配，避免误匹配
@@ -932,8 +951,8 @@ class DataAnalyzer:
         return list(set(size_parity))
     
     def extract_dragon_tiger_from_content(self, content):
-        """从内容中提取龙虎"""
-        content_str = str(content)
+        """从内容中提取龙虎 - 增强空格处理"""
+        content_str = normalize_spaces(str(content))
         dragon_tiger = []
         
         if '龙' in content_str and '虎' not in content_str:
@@ -943,10 +962,10 @@ class DataAnalyzer:
         
         return list(set(dragon_tiger))
     
-    def extract_wave_color_from_content(self, content):
-        """从内容中提取波色 - 增强版，支持半波项识别"""
-        content_str = str(content)
-        found_waves = []
+    def extract_size_parity_from_content(self, content):
+        """从内容中提取大小单双 - 增强空格处理"""
+        content_str = normalize_spaces(str(content))
+        size_parity = []
         
         # 波色映射（包括七色波的所有颜色）
         wave_mappings = {
@@ -1705,6 +1724,55 @@ class PlayCategoryNormalizer:
         
         return category_str
 
+    def normalize_category_comprehensive(self, category, content, lottery_type):
+        """综合考虑玩法和内容的分类标准化 - 增强空格处理"""
+        # 统一处理空格
+        category_str = normalize_spaces(category)
+        content_str = normalize_spaces(content)
+        
+        # 首先使用基本标准化
+        basic_normalized = self.normalize_category(category_str)
+        
+        # 对于六合彩，进行更精确的分类
+        if lottery_type == 'LHC':
+            # 处理正码1-6格式
+            if basic_normalized == '正码1-6' and '_' in category_str:
+                parts = category_str.split('_')
+                if len(parts) > 1:
+                    position_part = normalize_spaces(parts[1])
+                    # 映射到具体的正码位置
+                    if '正码一' in position_part or '正1' in position_part:
+                        return '正码一'
+                    elif '正码二' in position_part or '正2' in position_part:
+                        return '正码二'
+                    elif '正码三' in position_part or '正3' in position_part:
+                        return '正码三'
+                    elif '正码四' in position_part or '正4' in position_part:
+                        return '正码四'
+                    elif '正码五' in position_part or '正5' in position_part:
+                        return '正码五'
+                    elif '正码六' in position_part or '正6' in position_part:
+                        return '正码六'
+            
+            # 处理正特 - 保持原有分类，不进行额外映射
+            if basic_normalized in ['正1特', '正2特', '正3特', '正4特', '正5特', '正6特']:
+                return basic_normalized  # 直接返回，不进行额外处理
+        
+        elif lottery_type == 'PK10':
+            # 处理龙虎位置
+            if basic_normalized.startswith('龙虎_'):
+                return basic_normalized  # 保持原有
+            elif basic_normalized == '龙虎':
+                # 从内容中推断具体位置
+                if '冠军' in content_str or '第1名' in content_str:
+                    return '龙虎_冠军'
+                elif '亚军' in content_str or '第2名' in content_str:
+                    return '龙虎_亚军'
+                elif '季军' in content_str or '第3名' in content_str:
+                    return '龙虎_季军'
+        
+        return basic_normalized
+
 # ==================== 分析引擎 ====================
 class AnalysisEngine:
     def __init__(self):
@@ -1830,15 +1898,15 @@ class AnalysisEngine:
         return False
     
     def normalize_play_categories(self, df):
-        """统一玩法分类 - 使用增强版本"""
+        """统一玩法分类 - 使用综合方法"""
         logger.info("正在统一玩法分类...")
         
         if '玩法' in df.columns:
-            # 使用增强的玩法分类标准化
+            # === 替换这一行：使用综合的玩法分类标准化 ===
             df['玩法分类'] = df.apply(
-                lambda row: self.normalize_play_category_enhanced(
-                    row['内容'], 
+                lambda row: self.normalizer.normalize_category_comprehensive(
                     row['玩法'], 
+                    row['内容'],
                     self.identify_lottery_type(row['彩种'])
                 ), 
                 axis=1
@@ -1852,73 +1920,7 @@ class AnalysisEngine:
                 if len(category_counts) > 15:
                     st.info(f"还有{len(category_counts) - 15}个分类未显示")
         
-        return df
-
-    def normalize_play_category_enhanced(self, content, current_category, lottery_type):
-        """增强版玩法分类标准化 - 保守版本，不影响现有检测"""
-        content_str = str(content)
-        
-        # 首先使用原有的标准化方法
-        normalized_category = self.normalizer.normalize_category(current_category)
-        
-        # 只在特定情况下使用增强推断
-        if lottery_type == 'LHC':
-            # 对于正码1-6格式，尝试提取更具体的位置
-            if normalized_category == '正码1-6' and '_' in content_str:
-                inferred_position = self._extract_position_from_zhengma_category_safe(current_category)
-                if inferred_position != '未知位置':
-                    return inferred_position
-        
-        elif lottery_type == 'PK10':
-            # 对于龙虎，确保位置识别准确
-            if normalized_category == '龙虎':
-                inferred_position = ContentParser.infer_position_from_content(content, 'PK10')
-                if inferred_position in ['冠军', '亚军', '季军']:
-                    return f'龙虎_{inferred_position}'
-        
-        return normalized_category
-    
-    def _analyze_lhc_zhengte_enhanced(self, account, lottery, period, group, results):
-        """增强版六合彩正特分析 - 精确位置识别"""
-        zhengte_categories = ['正特', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
-        
-        # 按具体位置分组
-        position_data = defaultdict(lambda: {'numbers': set(), 'contents': []})
-        
-        for category in zhengte_categories:
-            category_group = group[group['玩法分类'] == category]
-            
-            for _, row in category_group.iterrows():
-                content = str(row['内容'])
-                category = str(row['玩法分类'])
-                
-                # 使用增强的位置识别
-                actual_position = self.normalize_play_category_enhanced(
-                    content, category, 'LHC'
-                )
-                
-                clean_content = self.data_analyzer.parse_lhc_special_content(content)
-                numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
-                
-                position_data[actual_position]['numbers'].update(numbers)
-                position_data[actual_position]['contents'].append(clean_content)
-        
-        # 对每个具体位置进行检测
-        for position, data in position_data.items():
-            numbers = data['numbers']
-            
-            if len(numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': f'{position}多码',
-                    '位置': position,
-                    '号码数量': len(numbers),
-                    '投注内容': f"{position}: {', '.join([f'{num:02d}' for num in sorted(numbers)])}",
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, f'{position}多码')
-                }
-                self._add_unique_result(results, f'{position}多码', record)
+        return df 
     
     def identify_lottery_type(self, lottery_name):
         """识别彩种类型"""
@@ -1985,7 +1987,7 @@ class AnalysisEngine:
             self._analyze_pk10_number_plays(account, lottery, period, group, results)
             self._analyze_pk10_independent_plays(account, lottery, period, group, results)
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
-            self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
+            self._analyze_pk10_dragon_tiger_comprehensive(account, lottery, period, group, results)
             self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
         
         return results
@@ -2348,6 +2350,49 @@ class AnalysisEngine:
                     return position
         
         return None  # 返回None而不是未知位置，避免误判
+
+    def _analyze_pk10_dragon_tiger_comprehensive(self, account, lottery, period, group, results):
+        """综合考虑玩法和内容的PK10龙虎检测 - 增强空格处理"""
+        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
+        
+        dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
+        
+        position_bets = defaultdict(set)
+        
+        for _, row in dragon_tiger_group.iterrows():
+            content = normalize_spaces(str(row['内容']))
+            category = normalize_spaces(str(row['玩法分类']))
+            
+            # 综合考虑玩法和内容推断位置
+            if '冠军' in category or '前一' in category:
+                position = '冠军'
+            elif '亚军' in category:
+                position = '亚军'
+            elif '季军' in category:
+                position = '季军'
+            else:
+                # 从内容中推断
+                position = ContentParser.infer_position_comprehensive(content, category, 'PK10')
+            
+            # 提取龙虎投注
+            dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            if position and dragon_tiger:
+                position_bets[position].update(dragon_tiger)
+        
+        # 检查矛盾
+        for position, bets in position_bets.items():
+            if position and '龙' in bets and '虎' in bets:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '龙虎',
+                    '位置': position,
+                    '矛盾类型': '龙虎矛盾',
+                    '投注内容': f"{position}-{','.join(sorted(bets))}",
+                    '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
+                }
+                self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置全投情况"""
@@ -2811,21 +2856,15 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            # 使用新的详细连肖检测
-            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
-            
-            # 使用新的详细连尾检测  
-            self._analyze_lhc_lianwei(account, lottery, period, group, results)
-            
-            # 新增：正码波色详细检测
-            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
+            self._analyze_lhc_zhengma_wave_comprehensive(account, lottery, period, group, results)
             
             # 其他检测方法保持不变
+            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
+            self._analyze_lhc_lianwei(account, lottery, period, group, results)
             self._analyze_lhc_tema(account, lottery, period, group, results)
             self._analyze_lhc_two_sides(account, lottery, period, group, results)
             self._analyze_lhc_zhengma(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma_1_6(account, lottery, period, group, results)
-            self._analyze_lhc_zhengte_enhanced(account, lottery, period, group, results)
+            self._analyze_lhc_zhengte(account, lottery, period, group, results)
             self._analyze_lhc_pingte(account, lottery, period, group, results)
             self._analyze_lhc_texiao(account, lottery, period, group, results)
             self._analyze_lhc_yixiao(account, lottery, period, group, results)
@@ -3829,6 +3868,48 @@ class AnalysisEngine:
                         return position
         
         return '未知位置'
+
+    def _analyze_lhc_zhengma_wave_comprehensive(self, account, lottery, period, group, results):
+        """综合考虑玩法和内容的六合彩正码波色检测"""
+        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+        
+        zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
+        
+        if zhengma_group.empty:
+            return
+        
+        position_waves = defaultdict(set)
+        
+        for _, row in zhengma_group.iterrows():
+            content = normalize_spaces(str(row['内容']))
+            category = normalize_spaces(str(row['玩法分类']))
+            
+            # 综合考虑玩法和内容推断位置
+            position = ContentParser.infer_position_comprehensive(content, category, 'LHC')
+            
+            # 提取波色
+            waves = self.data_analyzer.extract_wave_color_from_content(content)
+            
+            if position != '未知位置' and waves:
+                position_waves[position].update(waves)
+        
+        # 检查波色全包
+        traditional_waves = {'红波', '蓝波', '绿波'}
+        for position, waves in position_waves.items():
+            if traditional_waves.issubset(waves):
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': f'{position}波色全包',
+                    '位置': position,
+                    '违规类型': f'{position}波色全包',
+                    '投注波色数': len(traditional_waves),
+                    '投注波色': sorted(list(traditional_waves)),
+                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                    '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
+                }
+                self._add_unique_result(results, f'{position}波色全包', record)
 
     # =============== 3D系列分析方法 ===============
     def analyze_3d_patterns(self, df):
@@ -5214,6 +5295,13 @@ def main():
         type=['xlsx', 'xls'],
         help="请上传包含彩票投注数据的Excel文件"
     )
+
+    st.sidebar.subheader("数据处理选项")
+    enable_space_normalization = st.sidebar.checkbox(
+        "启用空格标准化处理", 
+        value=True,
+        help="自动处理各种空格字符（普通空格、全角空格、连续空格）"
+    )
     
     st.sidebar.subheader("检测阈值配置")
     
@@ -5264,6 +5352,13 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
+
+                    if enable_space_normalization:
+                        st.info("🔧 已启用空格标准化处理")
+                        # 对关键列进行额外的空格处理
+                        for col in ['玩法', '内容', '玩法分类']:
+                            if col in df_clean.columns:
+                                df_clean[col] = df_clean[col].apply(normalize_spaces)
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
