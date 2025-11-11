@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -3765,6 +3764,9 @@ class AnalysisEngine:
         """标准化正码位置名称 - 增强版本（支持正码1-6_正码三格式）"""
         position_str = str(position).strip()
         
+        # 调试信息
+        print(f"调试: 原始位置: {position_str}")
+        
         # 处理"正码1-6_正码三"格式
         if '正码1-6_' in position_str:
             # 提取具体位置部分
@@ -3777,8 +3779,12 @@ class AnalysisEngine:
             }
             for key, value in position_mapping.items():
                 if key in specific_part:
-                    return value
-            return '正码一'  # 默认
+                    result = value
+                    print(f"调试: 处理正码1-6格式: {position_str} -> {result}")
+                    return result
+            result = '正码一'  # 默认
+            print(f"调试: 使用默认位置: {position_str} -> {result}")
+            return result
         
         # 原有的标准化逻辑
         position_mapping = {
@@ -3797,12 +3803,16 @@ class AnalysisEngine:
         
         # 直接映射
         if position_str in position_mapping:
-            return position_mapping[position_str]
+            result = position_mapping[position_str]
+            print(f"调试: 直接映射: {position_str} -> {result}")
+            return result
         
         # 模糊匹配
         for key, value in position_mapping.items():
             if key in position_str:
-                return value
+                result = value
+                print(f"调试: 模糊匹配: {position_str} -> {result}")
+                return result
         
         # 如果包含数字，尝试提取数字并映射
         import re
@@ -3814,9 +3824,12 @@ class AnalysisEngine:
                 '4': '正码四', '5': '正码五', '6': '正码六'
             }
             if digit in digit_mapping:
-                return digit_mapping[digit]
+                result = digit_mapping[digit]
+                print(f"调试: 数字映射: {position_str} -> {result}")
+                return result
         
         # 返回原位置
+        print(f"调试: 返回原位置: {position_str}")
         return position_str
 
     # =============== 3D系列分析方法 ===============
