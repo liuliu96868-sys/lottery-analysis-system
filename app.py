@@ -1971,17 +1971,20 @@ class AnalysisEngine:
 
     # =============== PK10分析方法 ===============
     def analyze_pk10_patterns(self, df):
-        """分析PK拾/赛车系列投注模式"""
+        """分析PK拾/赛车系列投注模式 - 带调试信息"""
+        st.info("🔍 开始分析PK10模式...")
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'PK10']
         
         if len(df_target) == 0:
+            st.warning("没有PK10数据")
             return results
         
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
+            st.write(f"📊 分析PK10: {account} {period}")
             self._analyze_pk10_two_sides(account, lottery, period, group, results)
             self._analyze_pk10_gyh(account, lottery, period, group, results)
             self._analyze_pk10_number_plays(account, lottery, period, group, results)
@@ -1989,6 +1992,41 @@ class AnalysisEngine:
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
             self._analyze_pk10_dragon_tiger_comprehensive(account, lottery, period, group, results)
             self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
+        
+        return results
+    
+    def analyze_lhc_patterns(self, df):
+        """分析六合彩投注模式 - 带调试信息"""
+        st.info("🔍 开始分析六合彩模式...")
+        results = defaultdict(list)
+        
+        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
+        
+        if len(df_target) == 0:
+            st.warning("没有六合彩数据")
+            return results
+        
+        # 使用独立的尾数检测方法
+        self._analyze_lhc_tail_plays(df_target, results)
+        
+        # 其他检测方法
+        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
+        
+        for (account, lottery, period), group in grouped:
+            st.write(f"📊 分析六合彩: {account} {period}")
+            self._analyze_lhc_zhengma_wave_comprehensive(account, lottery, period, group, results)
+            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
+            self._analyze_lhc_lianwei(account, lottery, period, group, results)
+            self._analyze_lhc_tema(account, lottery, period, group, results)
+            self._analyze_lhc_two_sides(account, lottery, period, group, results)
+            self._analyze_lhc_zhengma(account, lottery, period, group, results)
+            self._analyze_lhc_zhengte(account, lottery, period, group, results)
+            self._analyze_lhc_pingte(account, lottery, period, group, results)
+            self._analyze_lhc_texiao(account, lottery, period, group, results)
+            self._analyze_lhc_yixiao(account, lottery, period, group, results)
+            self._analyze_lhc_wave(account, lottery, period, group, results)
+            self._analyze_lhc_five_elements(account, lottery, period, group, results)
+            self._analyze_lhc_banbo(account, lottery, period, group, results)
         
         return results
     
@@ -2352,52 +2390,58 @@ class AnalysisEngine:
         return None  # 返回None而不是未知位置，避免误判
 
     def _analyze_pk10_dragon_tiger_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的PK10龙虎检测 - 修复位置识别"""
-        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
+        """综合考虑玩法和内容的PK10龙虎检测 - 彻底修复位置识别"""
+        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
         
+        if dragon_tiger_group.empty:
+            return
+        
         position_bets = defaultdict(set)
+        
+        # 调试信息
+        debug_records = []
         
         for _, row in dragon_tiger_group.iterrows():
             content = normalize_spaces(str(row['内容']))
             category = normalize_spaces(str(row['玩法分类']))
             
-            # 修复：直接从玩法分类中提取位置
-            position = None
-            if '冠军' in category or '前一' in category:
-                position = '冠军'
-            elif '亚军' in category:
-                position = '亚军'
-            elif '季军' in category:
-                position = '季军'
-            elif '第四名' in category:
-                position = '第四名'
-            elif '第五名' in category:
-                position = '第五名'
-            elif '第六名' in category:
-                position = '第六名'
-            elif '第七名' in category:
-                position = '第七名'
-            elif '第八名' in category:
-                position = '第八名'
-            elif '第九名' in category:
-                position = '第九名'
-            elif '第十名' in category:
-                position = '第十名'
+            # 调试记录
+            debug_record = {
+                'account': account,
+                'period': period,
+                'category': category,
+                'content': content,
+                'position_found': None
+            }
             
-            # 如果从分类中无法提取位置，再从内容中推断
-            if not position:
-                position = ContentParser.infer_position_comprehensive(content, category, 'PK10')
+            # 直接解析玩法分类中的位置
+            position = self._extract_position_from_dragon_tiger_category(category)
+            
+            debug_record['position_found'] = position
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            
             if position and dragon_tiger:
                 position_bets[position].update(dragon_tiger)
+                debug_record['dragon_tiger'] = dragon_tiger
+            else:
+                debug_record['dragon_tiger'] = '未提取到或位置为空'
+            
+            debug_records.append(debug_record)
+        
+        # 输出调试信息
+        if debug_records:
+            st.write(f"🐉 龙虎检测调试信息 - {account} {period}:")
+            for record in debug_records:
+                st.write(f"  - 玩法: {record['category']}, 内容: {record['content']}, 位置: {record['position_found']}, 龙虎: {record.get('dragon_tiger', '无')}")
         
         # 检查矛盾 - 只在同一位置同时投注龙和虎时才报告
         for position, bets in position_bets.items():
             if position and '龙' in bets and '虎' in bets:
+                st.success(f"🎯 检测到龙虎矛盾: {position} - {bets}")
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -2409,6 +2453,53 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+    
+    def _extract_position_from_dragon_tiger_category(self, category):
+        """从龙虎玩法分类中精确提取位置 - 彻底修复版本"""
+        category_str = str(category).strip()
+        
+        # 处理所有可能的空格和格式问题
+        category_clean = category_str.replace(' ', '').replace(' ', '').replace('_', '').replace('-', '')
+        
+        # 完整的位置映射
+        position_mapping = {
+            '冠军': ['冠军', '冠 军', '冠  军', '第1名', '第一名', '前一', '1st', '1'],
+            '亚军': ['亚军', '亚 军', '亚  军', '第2名', '第二名', '2nd', '2'],
+            '季军': ['季军', '季 军', '季  军', '第3名', '第三名', '3rd', '3'],
+            '第四名': ['第四名', '第4名', '4th', '4'],
+            '第五名': ['第五名', '第5名', '5th', '5'],
+            '第六名': ['第六名', '第6名', '6th', '6'],
+            '第七名': ['第七名', '第7名', '7th', '7'],
+            '第八名': ['第八名', '第8名', '8th', '8'],
+            '第九名': ['第九名', '第9名', '9th', '9'],
+            '第十名': ['第十名', '第10名', '10th', '10']
+        }
+        
+        # 首先检查完整匹配
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                keyword_clean = keyword.replace(' ', '')
+                if keyword_clean == category_clean.replace('龙虎', ''):
+                    return position
+        
+        # 然后检查包含关系
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                keyword_clean = keyword.replace(' ', '')
+                if keyword_clean in category_clean:
+                    return position
+        
+        # 处理"龙虎_第四名"这种格式
+        if '龙虎' in category_clean:
+            remaining = category_clean.replace('龙虎', '')
+            for position, keywords in position_mapping.items():
+                for keyword in keywords:
+                    keyword_clean = keyword.replace(' ', '')
+                    if keyword_clean in remaining:
+                        return position
+        
+        st.warning(f"⚠️ 无法从玩法分类中提取位置: {category_str} -> {category_clean}")
+        return '未知位置'
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置全投情况"""
@@ -3887,55 +3978,62 @@ class AnalysisEngine:
         return '未知位置'
 
     def _analyze_lhc_zhengma_wave_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的六合彩正码波色检测 - 修复位置识别"""
+        """综合考虑玩法和内容的六合彩正码波色检测 - 彻底修复版本"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
         
         if zhengma_group.empty:
+            st.warning(f"⚠️ 没有找到正码投注记录 - {account} {period}")
             return
         
         position_waves = defaultdict(set)
+        
+        # 调试信息
+        debug_records = []
         
         for _, row in zhengma_group.iterrows():
             content = normalize_spaces(str(row['内容']))
             category = normalize_spaces(str(row['玩法分类']))
             
-            # 修复：从玩法分类中直接提取位置
-            position = None
+            # 调试记录
+            debug_record = {
+                'account': account,
+                'period': period,
+                'category': category,
+                'content': content,
+                'position_found': None,
+                'waves_found': None
+            }
             
-            # 处理"正码1-6_正码一"这种格式
-            if '正码1-6' in category and '_' in category:
-                parts = category.split('_')
-                if len(parts) > 1:
-                    position_part = parts[1].strip()
-                    if '正码一' in position_part or '正1' in position_part:
-                        position = '正码一'
-                    elif '正码二' in position_part or '正2' in position_part:
-                        position = '正码二'
-                    elif '正码三' in position_part or '正3' in position_part:
-                        position = '正码三'
-                    elif '正码四' in position_part or '正4' in position_part:
-                        position = '正码四'
-                    elif '正码五' in position_part or '正5' in position_part:
-                        position = '正码五'
-                    elif '正码六' in position_part or '正6' in position_part:
-                        position = '正码六'
-            
-            # 如果从分类中无法提取位置，使用综合推断
-            if not position:
-                position = ContentParser.infer_position_comprehensive(content, category, 'LHC')
+            # 直接从玩法分类中提取位置
+            position = self._extract_position_from_zhengma_category_direct(category)
+            debug_record['position_found'] = position
             
             # 提取波色
             waves = self.data_analyzer.extract_wave_color_from_content(content)
+            debug_record['waves_found'] = waves
             
             if position and position != '未知位置' and waves:
                 position_waves[position].update(waves)
+            
+            debug_records.append(debug_record)
+        
+        # 输出调试信息
+        if debug_records:
+            st.write(f"🎯 正码波色检测调试信息 - {account} {period}:")
+            for record in debug_records:
+                st.write(f"  - 玩法: {record['category']}, 内容: {record['content']}, 位置: {record['position_found']}, 波色: {record['waves_found']}")
+        
+        # 检查每个位置的波色
+        for position, waves in position_waves.items():
+            st.write(f"  📊 位置 {position} 的波色集合: {waves}")
         
         # 检查波色全包
         traditional_waves = {'红波', '蓝波', '绿波'}
         for position, waves in position_waves.items():
             if traditional_waves.issubset(waves):
+                st.success(f"🎉 检测到 {position} 波色全包!")
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -3949,73 +4047,48 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
-
-    def _analyze_lhc_zhengma_wave_comprehensive_debug(self, account, lottery, period, group, results):
-        """带调试信息的正码波色检测"""
-        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+    
+    def _extract_position_from_zhengma_category_direct(self, category):
+        """直接从六合彩玩法分类中提取位置 - 彻底修复版本"""
+        category_str = str(category).strip()
         
-        zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
+        # 处理所有可能的空格和格式问题
+        category_clean = category_str.replace(' ', '').replace(' ', '').replace('_', '').replace('-', '')
         
-        if zhengma_group.empty:
-            st.warning(f"没有找到正码投注记录 - {account} {period}")
-            return
+        # 完整的位置映射
+        position_mapping = {
+            '正码一': ['正码一', '正1', '正码1', '正一'],
+            '正码二': ['正码二', '正2', '正码2', '正二'],
+            '正码三': ['正码三', '正3', '正码3', '正三'],
+            '正码四': ['正码四', '正4', '正码4', '正四'],
+            '正码五': ['正码五', '正5', '正码5', '正五'],
+            '正码六': ['正码六', '正6', '正码6', '正六']
+        }
         
-        # 调试信息
-        debug_info = []
-        position_waves = defaultdict(set)
+        # 首先检查完整匹配
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                keyword_clean = keyword.replace(' ', '')
+                if keyword_clean == category_clean:
+                    return position
         
-        for _, row in zhengma_group.iterrows():
-            content = normalize_spaces(str(row['内容']))
-            category = normalize_spaces(str(row['玩法分类']))
-            
-            # 记录原始信息
-            original_info = {
-                '账号': account,
-                '期号': period, 
-                '原分类': category,
-                '内容': content,
-                '推断位置': '待计算',
-                '提取波色': '待计算'
-            }
-            
-            # 位置推断
-            position = ContentParser.infer_position_comprehensive(content, category, 'LHC')
-            original_info['推断位置'] = position
-            
-            # 波色提取
-            waves = self.data_analyzer.extract_wave_color_from_content(content)
-            original_info['提取波色'] = ', '.join(waves) if waves else '无'
-            
-            debug_info.append(original_info)
-            
-            if position and position != '未知位置' and waves:
-                position_waves[position].update(waves)
+        # 然后检查包含关系
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                keyword_clean = keyword.replace(' ', '')
+                if keyword_clean in category_clean:
+                    return position
         
-        # 显示调试信息
-        if debug_info:
-            st.write(f"**正码波色检测调试信息 - {account} {period}:**")
-            for info in debug_info:
-                st.write(f"- 原分类: {info['原分类']}, 内容: {info['内容']}, 推断位置: {info['推断位置']}, 波色: {info['提取波色']}")
+        # 处理"正码1-6_正码一"这种格式
+        if '正码1-6' in category_clean or '正码16' in category_clean:
+            for position, keywords in position_mapping.items():
+                for keyword in keywords:
+                    keyword_clean = keyword.replace(' ', '')
+                    if keyword_clean in category_clean:
+                        return position
         
-        # 检查波色全包
-        traditional_waves = {'红波', '蓝波', '绿波'}
-        for position, waves in position_waves.items():
-            st.write(f"位置 {position} 的波色: {waves}")
-            if traditional_waves.issubset(waves):
-                st.success(f"检测到 {position} 波色全包!")
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': f'{position}波色全包',
-                    '位置': position,
-                    '违规类型': f'{position}波色全包',
-                    '投注波色数': len(traditional_waves),
-                    '投注波色': sorted(list(traditional_waves)),
-                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
-                    '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
-                }
-                self._add_unique_result(results, f'{position}波色全包', record)
+        st.warning(f"⚠️ 无法从玩法分类中提取正码位置: {category_str} -> {category_clean}")
+        return '未知位置'
 
     # =============== 3D系列分析方法 ===============
     def analyze_3d_patterns(self, df):
@@ -5408,6 +5481,13 @@ def main():
         value=True,
         help="自动处理各种空格字符（普通空格、全角空格、连续空格）"
     )
+
+    st.sidebar.subheader("调试选项")
+    enable_detailed_debug = st.sidebar.checkbox(
+        "启用详细调试模式", 
+        value=True,
+        help="显示详细的处理过程和调试信息"
+    )
     
     st.sidebar.subheader("检测阈值配置")
     
@@ -5468,6 +5548,10 @@ def main():
                     
                     # 统一玩法分类
                     df_normalized = analyzer.normalize_play_categories(df_clean)
+
+                    # 启用调试模式
+                    if enable_detailed_debug:
+                        st.info("🔧 详细调试模式已启用")
                     
                     # ==================== 添加 try-except 代码块开始 ====================
                     try:
