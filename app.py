@@ -624,51 +624,105 @@ class ContentParser:
     
     @staticmethod
     def parse_lhc_zhengma_content(content):
-        """
-        解析六合彩正码投注内容 - 增强版本
-        格式：位置1-投注项1,投注项2,位置2-投注项1,投注项2,...
-        """
+        """增强版六合彩正码内容解析 - 精确位置识别"""
         content_str = str(content).strip()
         bets_by_position = defaultdict(list)
         
         if not content_str:
             return bets_by_position
         
-        # 按逗号分割所有部分
-        parts = [part.strip() for part in content_str.split(',')]
+        # 更精确的位置关键词映射
+        position_keywords = {
+            '正码一': ['正码一', '正1', '正码1', '正一', '正码一特', '正1特'],
+            '正码二': ['正码二', '正2', '正码2', '正二', '正码二特', '正2特'],
+            '正码三': ['正码三', '正3', '正码3', '正三', '正码三特', '正3特'],
+            '正码四': ['正码四', '正4', '正码4', '正四', '正码四特', '正4特'],
+            '正码五': ['正码五', '正5', '正码5', '正五', '正码五特', '正5特'],
+            '正码六': ['正码六', '正6', '正码6', '正六', '正码六特', '正6特']
+        }
         
+        # 处理波色全包的特殊格式
+        if '波色全包' in content_str:
+            # 提取位置信息
+            for position, keywords in position_keywords.items():
+                for keyword in keywords:
+                    if keyword in content_str:
+                        # 提取波色
+                        waves = set()
+                        if '红' in content_str:
+                            waves.add('红波')
+                        if '绿' in content_str:
+                            waves.add('绿波') 
+                        if '蓝' in content_str:
+                            waves.add('蓝波')
+                        if '紫' in content_str:
+                            waves.add('紫波')
+                        
+                        bets_by_position[position].extend(list(waves))
+                        return bets_by_position
+        
+        # 原有的解析逻辑
+        parts = [part.strip() for part in content_str.split(',')]
         current_position = None
         
         for part in parts:
             # 检查是否包含位置关键词
-            is_position = False
-            position_keywords = ['正码一', '正码二', '正码三', '正码四', '正码五', '正码六',
-                               '正1', '正2', '正3', '正4', '正5', '正6',
-                               '正码1', '正码2', '正码3', '正码4', '正码5', '正码6']
-            
-            for keyword in position_keywords:
-                if keyword in part and '-' in part:
-                    is_position = True
+            position_found = False
+            for position, keywords in position_keywords.items():
+                for keyword in keywords:
+                    if keyword in part:
+                        current_position = position
+                        position_found = True
+                        break
+                if position_found:
                     break
             
             # 如果包含位置信息或者是明确的"位置-内容"格式
-            if '-' in part and is_position:
+            if '-' in part and position_found:
                 try:
                     position_part, bet_value = part.split('-', 1)
-                    current_position = position_part.strip()
+                    # 重新确认位置
+                    for position, keywords in position_keywords.items():
+                        for keyword in keywords:
+                            if keyword in position_part:
+                                current_position = position
+                                break
+                    
                     bets_by_position[current_position].append(bet_value.strip())
                 except ValueError:
-                    # 分割失败，可能不是有效的位置格式
                     if current_position:
                         bets_by_position[current_position].append(part)
             elif current_position:
                 # 属于当前位置的投注项
                 bets_by_position[current_position].append(part)
             else:
-                # 没有当前位置，可能是独立的投注项
-                bets_by_position['未知位置'].append(part)
+                # 没有当前位置，尝试推断
+                inferred_position = ContentParser._infer_zhengma_position_from_content(part)
+                if inferred_position:
+                    bets_by_position[inferred_position].append(part)
         
         return bets_by_position
+    
+    @staticmethod
+    def _infer_zhengma_position_from_content(content):
+        """从内容推断正码位置"""
+        content_str = str(content)
+        
+        position_mapping = {
+            '正码一': ['正码一', '正1', '正码1', '正一'],
+            '正码二': ['正码二', '正2', '正码2', '正二'],
+            '正码三': ['正码三', '正3', '正码3', '正三'],
+            '正码四': ['正码四', '正4', '正码4', '正四'],
+            '正码五': ['正码五', '正5', '正码5', '正五'],
+            '正码六': ['正码六', '正6', '正码6', '正六']
+        }
+        
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in content_str:
+                    return position
+        
+        return None
     
     @staticmethod
     def parse_ssc_content(content):
@@ -3541,8 +3595,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
 
     def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 修复位置判断问题"""
-        # 正码相关的玩法分类
+        """增强版六合彩正码波色全包检测 - 精确位置判断"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
@@ -3550,42 +3603,54 @@ class AnalysisEngine:
         if zhengma_group.empty:
             return
         
-        # 收集每个位置的波色投注 - 使用更精确的位置判断
+        # 收集每个位置的波色投注
         position_waves = defaultdict(set)
+        position_contents = defaultdict(list)  # 记录原始内容用于调试
         
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 首先从玩法分类中精确推断位置
-            inferred_position = self._infer_zhengma_position_from_category(category)
-            
-            # 使用统一解析器解析正码内容
+            # 使用增强解析器
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
-            # 如果没有解析出位置，使用推断的位置
-            if not bets_by_position or all(pos == '未知位置' for pos in bets_by_position.keys()):
-                if inferred_position:
-                    # 从内容中提取波色
-                    waves = self._extract_wave_from_zhengma_content(content)
-                    if waves:
-                        position_waves[inferred_position].update(waves)
-            else:
-                # 使用解析出的位置
-                for position, bets in bets_by_position.items():
-                    # 标准化位置名称
-                    normalized_position = self._normalize_zhengma_position(position)
+            for position, bets in bets_by_position.items():
+                position_contents[position].append(content)  # 记录原始内容
+                
+                # 检查每个投注项的波色
+                for bet in bets:
+                    bet_str = str(bet).strip()
                     
-                    # 检查每个投注项的波色
-                    for bet in bets:
-                        waves = self._extract_wave_from_zhengma_bet(bet)
-                        position_waves[normalized_position].update(waves)
+                    # 精确波色匹配
+                    if '红波' in bet_str or '紅波' in bet_str:
+                        position_waves[position].add('红波')
+                    if '蓝波' in bet_str or '藍波' in bet_str:
+                        position_waves[position].add('蓝波') 
+                    if '绿波' in bet_str or '綠波' in bet_str:
+                        position_waves[position].add('绿波')
+                    if '紫波' in bet_str:
+                        position_waves[position].add('紫波')
+                    
+                    # 处理波色全包的特殊情况
+                    if '波色全包' in bet_str or '波色全包' in content:
+                        if '红' in content:
+                            position_waves[position].add('红波')
+                        if '绿' in content:
+                            position_waves[position].add('绿波')
+                        if '蓝' in content:
+                            position_waves[position].add('蓝波')
+                        if '紫' in content:
+                            position_waves[position].add('紫波')
         
         # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
         for position, waves in position_waves.items():
             # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
             if traditional_waves.issubset(waves):
+                # 获取相关原始内容用于显示
+                related_contents = position_contents.get(position, [])
+                sample_content = related_contents[0] if related_contents else "未知内容"
+                
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -3596,6 +3661,7 @@ class AnalysisEngine:
                     '投注波色数': len(traditional_waves),
                     '投注波色': sorted(list(traditional_waves)),
                     '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                    '原始内容样本': sample_content[:100],  # 显示部分原始内容用于验证
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
