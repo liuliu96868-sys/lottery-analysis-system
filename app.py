@@ -1761,6 +1761,42 @@ class AnalysisEngine:
         self.normalizer = PlayCategoryNormalizer()
         self.seen_records = set()  # 用于记录已检测的记录
 
+    def debug_detailed_analysis(self, account, lottery, period, group):
+        """详细调试分析过程"""
+        print(f"\n=== 详细调试分析过程 ===")
+        print(f"账户: {account}, 彩种: {lottery}, 期号: {period}")
+        
+        # 显示所有记录
+        print("所有记录:")
+        for _, row in group.iterrows():
+            print(f"  玩法分类: '{row['玩法分类']}', 内容: '{row['内容']}'")
+        
+        # 调试龙虎分析
+        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
+        dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
+        
+        print(f"龙虎投注记录:")
+        for _, row in dragon_tiger_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            position = self._extract_dragon_tiger_position_complete(category, content)
+            dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            print(f"  分类: '{category}', 内容: '{content}', 位置: '{position}', 龙虎投注: {dragon_tiger}")
+        
+        # 调试正码波色分析
+        zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
+        zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
+        
+        print(f"正码投注记录:")
+        for _, row in zhengma_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            position = self._normalize_zhengma_position_complete(category)
+            waves = self._extract_wave_strict(content)
+            print(f"  分类: '{category}', 内容: '{content}', 位置: '{position}', 波色: {waves}")
+        
+        print("=== 结束详细调试分析过程 ===\n")
+    
     def debug_zhengma_analysis(self, account, lottery, period, group):
         """详细调试正码分析过程"""
         print(f"\n=== 详细调试正码分析过程 ===")
@@ -3041,13 +3077,14 @@ class AnalysisEngine:
         if len(df_target) == 0:
             return results
         
+        # 使用独立的尾数检测方法
+        self._analyze_lhc_tail_plays(df_target, results)
+        
+        # 其他检测方法
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            # 先进行调试
-            self.debug_zhengma_analysis(account, lottery, period, group)
-            
-            # 然后进行分析
+            # 使用修复版的正码波色检测
             self._analyze_lhc_zhengma_wave_detailed_fixed(account, lottery, period, group, results)
             
             # 其他检测方法保持不变
