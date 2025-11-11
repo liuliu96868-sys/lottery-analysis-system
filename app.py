@@ -623,6 +623,7 @@ class ContentParser:
         return ContentParser.parse_positional_bets(content, pk10_positions)
     
     @staticmethod
+    @staticmethod
     def parse_lhc_zhengma_content(content):
         """增强版六合彩正码内容解析 - 精确位置识别"""
         content_str = str(content).strip()
@@ -647,7 +648,7 @@ class ContentParser:
             for position, keywords in position_keywords.items():
                 for keyword in keywords:
                     if keyword in content_str:
-                        # 提取波色
+                        # 提取波色 - 六合彩只有红波、蓝波、绿波
                         waves = set()
                         if '红' in content_str:
                             waves.add('红波')
@@ -655,8 +656,7 @@ class ContentParser:
                             waves.add('绿波') 
                         if '蓝' in content_str:
                             waves.add('蓝波')
-                        if '紫' in content_str:
-                            waves.add('紫波')
+                        # 移除紫波，六合彩没有紫波
                         
                         bets_by_position[position].extend(list(waves))
                         return bets_by_position
@@ -3621,15 +3621,14 @@ class AnalysisEngine:
                 for bet in bets:
                     bet_str = str(bet).strip()
                     
-                    # 精确波色匹配
+                    # 精确波色匹配 - 六合彩只有红波、蓝波、绿波
                     if '红波' in bet_str or '紅波' in bet_str:
                         position_waves[position].add('红波')
                     if '蓝波' in bet_str or '藍波' in bet_str:
                         position_waves[position].add('蓝波') 
                     if '绿波' in bet_str or '綠波' in bet_str:
                         position_waves[position].add('绿波')
-                    if '紫波' in bet_str:
-                        position_waves[position].add('紫波')
+                    # 移除紫波，六合彩没有紫波
                     
                     # 处理波色全包的特殊情况
                     if '波色全包' in bet_str or '波色全包' in content:
@@ -3639,11 +3638,10 @@ class AnalysisEngine:
                             position_waves[position].add('绿波')
                         if '蓝' in content:
                             position_waves[position].add('蓝波')
-                        if '紫' in content:
-                            position_waves[position].add('紫波')
+                        # 移除紫波，六合彩没有紫波
         
         # 检查每个位置的波色全包情况
-        traditional_waves = {'红波', '蓝波', '绿波'}
+        traditional_waves = {'红波', '蓝波', '绿波'}  # 六合彩只有这三种波色
         for position, waves in position_waves.items():
             # 如果该位置同时投注了红波、蓝波、绿波，则视为该位置波色全包
             if traditional_waves.issubset(waves):
