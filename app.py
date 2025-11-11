@@ -1835,6 +1835,7 @@ class AnalysisEngine:
     def _extract_dragon_tiger_position_complete(self, category, content):
         """完全重写的龙虎位置提取函数 - 修复版"""
         category_str = str(category).strip()
+        content_str = str(content)  # 修复：定义 content_str 变量
         
         # 调试信息
         print(f"龙虎位置提取 - 输入分类: '{category_str}', 输入内容: '{content_str}'")
@@ -1861,7 +1862,6 @@ class AnalysisEngine:
                     return position
         
         # 如果无法精确匹配，从内容中推断
-        content_str = str(content)
         for position, keywords in position_mapping.items():
             for keyword in keywords:
                 if keyword in content_str:
