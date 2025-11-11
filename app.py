@@ -1914,13 +1914,29 @@ class AnalysisEngine:
         return hashlib.md5('|'.join(key_parts).encode()).hexdigest()
     
     def _add_unique_result(self, results, result_type, record):
-        """添加唯一的结果记录"""
-        record_hash = self._get_record_hash(record)
+        """添加唯一的结果记录 - 增强去重版本"""
+        # 生成更精确的记录哈希值，包含所有关键信息
+        key_parts = [
+            record['会员账号'],
+            record['彩种'], 
+            record['期号'],
+            record.get('玩法分类', ''),
+            record.get('违规类型', ''),
+            record.get('位置', ''),
+            str(record.get('号码数量', 0)),
+            record.get('矛盾类型', ''),
+            # 添加投注内容作为去重依据
+            record.get('投注内容', '')[:50]  # 只取前50个字符避免过长
+        ]
+        record_hash = hashlib.md5('|'.join(key_parts).encode()).hexdigest()
         
         if record_hash not in self.seen_records:
             self.seen_records.add(record_hash)
             results[result_type].append(record)
             return True
+        
+        # 如果发现重复记录，输出调试信息
+        st.warning(f"⚠️ 检测到重复记录，已跳过: {record['会员账号']} {record['期号']} {record.get('玩法分类', '')}")
         return False
     
     def normalize_play_categories(self, df):
@@ -1997,7 +2013,7 @@ class AnalysisEngine:
 
     # =============== PK10分析方法 ===============
     def analyze_pk10_patterns(self, df):
-        """分析PK拾/赛车系列投注模式 - 带调试信息"""
+        """分析PK拾/赛车系列投注模式 - 优化检测顺序"""
         st.info("🔍 开始分析PK10模式...")
         results = defaultdict(list)
         
@@ -2011,12 +2027,16 @@ class AnalysisEngine:
         
         for (account, lottery, period), group in grouped:
             st.write(f"📊 分析PK10: {account} {period}")
+            
+            # 先进行专门的龙虎检测
+            self._analyze_pk10_dragon_tiger_comprehensive(account, lottery, period, group, results)
+            
+            # 然后进行其他检测（独立玩法不再检测龙虎矛盾）
             self._analyze_pk10_two_sides(account, lottery, period, group, results)
             self._analyze_pk10_gyh(account, lottery, period, group, results)
             self._analyze_pk10_number_plays(account, lottery, period, group, results)
-            self._analyze_pk10_independent_plays(account, lottery, period, group, results)
+            self._analyze_pk10_independent_plays(account, lottery, period, group, results)  # 这个不再检测龙虎
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
-            self._analyze_pk10_dragon_tiger_comprehensive(account, lottery, period, group, results)
             self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
         
         return results
@@ -2254,7 +2274,7 @@ class AnalysisEngine:
         return None
     
     def _analyze_pk10_independent_plays(self, account, lottery, period, group, results):
-        """分析PK10独立玩法（大小单双龙虎）"""
+        """分析PK10独立玩法（大小单双龙虎）- 避免重复检测版本"""
         independent_categories = [
             '大小_冠军', '大小_亚军', '大小_季军',
             '单双_冠军', '单双_亚军', '单双_季军',
@@ -2265,7 +2285,7 @@ class AnalysisEngine:
         
         position_bets = defaultdict(set)
         
-        for _, row in independent_group.iterrows():  # 这个for循环需要正确缩进
+        for _, row in independent_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
@@ -2279,26 +2299,35 @@ class AnalysisEngine:
             else:
                 continue
             
+            # 只提取大小单双，不提取龙虎（龙虎由专门的龙虎检测处理）
             if '大小' in category:
                 bets = self.data_analyzer.extract_size_parity_from_content(content)
+                # 只关注大小
+                size_bets = [bet for bet in bets if bet in ['大', '小']]
+                if size_bets:
+                    position_bets[position].update(size_bets)
             elif '单双' in category:
                 bets = self.data_analyzer.extract_size_parity_from_content(content)
-            elif '龙虎' in category:
-                bets = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            else:
-                bets = []
-            
-            position_bets[position].update(bets)
+                # 只关注单双
+                parity_bets = [bet for bet in bets if bet in ['单', '双']]
+                if parity_bets:
+                    position_bets[position].update(parity_bets)
+            # 注释掉龙虎的提取，由专门的龙虎检测处理
+            # elif '龙虎' in category:
+            #     bets = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            #     position_bets[position].update(bets)
         
-        for position, bets in position_bets.items():  # 这个for循环也需要正确缩进
+        for position, bets in position_bets.items():
             conflicts = []
             
+            # 只检查大小单双矛盾，不检查龙虎矛盾
             if '大' in bets and '小' in bets:
                 conflicts.append('大小')
             if '单' in bets and '双' in bets:
                 conflicts.append('单双')
-            if '龙' in bets and '虎' in bets:
-                conflicts.append('龙虎')
+            # 注释掉龙虎矛盾的检查
+            # if '龙' in bets and '虎' in bets:
+            #    conflicts.append('龙虎')
             
             if conflicts:
                 record = {
@@ -4087,7 +4116,7 @@ class AnalysisEngine:
         return '未知位置'
 
     def _analyze_lhc_zhengma_wave_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的六合彩正码波色检测 - 终极修复版本"""
+        """综合考虑玩法和内容的六合彩正码波色检测 - 避免重复检测版本"""
         # 扩展正码分类，包括所有可能的正码分类
         zhengma_categories = [
             '正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六',
@@ -4173,32 +4202,37 @@ class AnalysisEngine:
         
         # 检查每个位置的波色全包
         traditional_waves = {'红波', '蓝波', '绿波'}
+        has_specific_position_full = False
+        
         for position, waves in position_waves.items():
             st.write(f"  📊 位置 {position} 的波色集合: {waves}")
             
-            # 检查该位置是否波色全包
-            if traditional_waves.issubset(waves):
-                st.success(f"🎉 检测到 {position} 波色全包!")
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': f'{position}波色全包',
-                    '位置': position,
-                    '违规类型': f'{position}波色全包',
-                    '投注波色数': len(traditional_waves),
-                    '投注波色': sorted(list(traditional_waves)),
-                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
-                    '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
-                }
-                self._add_unique_result(results, f'{position}波色全包', record)
+            # 检查该位置是否波色全包（只检查具体位置，不检查通用位置）
+            if position in ['正码一', '正码二', '正码三', '正码四', '正码五', '正码六']:
+                if traditional_waves.issubset(waves):
+                    st.success(f"🎉 检测到 {position} 波色全包!")
+                    has_specific_position_full = True
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': f'{position}波色全包',
+                        '位置': position,
+                        '违规类型': f'{position}波色全包',
+                        '投注波色数': len(traditional_waves),
+                        '投注波色': sorted(list(traditional_waves)),
+                        '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                        '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
+                    }
+                    self._add_unique_result(results, f'{position}波色全包', record)
         
-        # 额外检查：如果同一个期号内，所有正码位置加起来波色全包，也进行检测
+        # 额外检查：如果同一个期号内，所有正码位置加起来波色全包，但没有具体位置全包，才进行整体检测
         all_waves = set()
         for waves in position_waves.values():
             all_waves.update(waves)
         
-        if traditional_waves.issubset(all_waves):
+        # 只有当没有具体位置全包，但整体全包时才报告整体全包
+        if traditional_waves.issubset(all_waves) and not has_specific_position_full:
             st.success(f"🎉 检测到整体正码波色全包!")
             record = {
                 '会员账号': account,
