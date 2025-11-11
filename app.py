@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -1089,7 +1090,13 @@ class DataAnalyzer:
         return '冠军'
     
     def _normalize_pk10_position(self, position):
-        """增强的PK10位置标准化"""
+        """标准化PK10位置 - 调用增强版本"""
+        # 这里需要调用AnalysisEngine的增强方法，但由于DataAnalyzer没有AnalysisEngine的实例
+        # 我们可以在这里实现相同的逻辑，或者修改调用方式
+        # 简单起见，我们在这里实现相同的逻辑
+        position_str = str(position).strip()
+        position_clean = position_str.replace(' ', '').replace(' ', '')
+        
         position_mapping = {
             '冠军': '冠军', '第1名': '冠军', '第一名': '冠军', '1': '冠军', '1st': '冠军',
             '前一': '冠军',
@@ -1104,32 +1111,32 @@ class DataAnalyzer:
             '第10名': '第十名', '第十名': '第十名', '十名': '第十名', '10': '第十名', '10th': '第十名'
         }
         
-        position = position.strip()
+        if position_clean in position_mapping:
+            return position_mapping[position_clean]
         
-        # 直接映射
-        if position in position_mapping:
-            return position_mapping[position]
-        
-        # 模糊匹配 - 增强逻辑
         for key, value in position_mapping.items():
-            if key in position:
+            if key in position_clean:
                 return value
         
-        # 处理带冒号的格式（如"第九名:"）
-        if position.endswith(':'):
-            clean_position = position[:-1].strip()
+        if position_clean.endswith(':'):
+            clean_position = position_clean[:-1].strip()
             if clean_position in position_mapping:
                 return position_mapping[clean_position]
             for key, value in position_mapping.items():
                 if key in clean_position:
                     return value
         
-        # 如果还是无法识别，尝试更宽松的匹配
-        position_lower = position.lower()
+        position_lower = position_clean.lower()
         if '九' in position_lower or '9' in position_lower:
             return '第九名'
+        if '亚' in position_lower or '2' in position_lower:
+            return '亚军'
+        if '冠' in position_lower or '1' in position_lower:
+            return '冠军'
+        if '季' in position_lower or '3' in position_lower:
+            return '第三名'
         
-        return position  # 返回原位置而不是未知
+        return position_clean
 
     def parse_3d_content(self, content):
         """解析3D投注内容 - 增强竖线格式支持"""
@@ -1595,6 +1602,114 @@ class AnalysisEngine:
         self.data_analyzer = DataAnalyzer()
         self.normalizer = PlayCategoryNormalizer()
         self.seen_records = set()  # 用于记录已检测的记录
+
+    def _normalize_zhengma_position_enhanced(self, position):
+        """增强版正码位置标准化 - 处理'正码1-6_正码三'格式"""
+        position_str = str(position).strip()
+        
+        # 处理"正码1-6_正码三"格式
+        if '正码1-6_' in position_str:
+            # 提取具体位置部分
+            specific_part = position_str.replace('正码1-6_', '').strip()
+            position_mapping = {
+                '正码一': '正码一', '正码二': '正码二', '正码三': '正码三',
+                '正码四': '正码四', '正码五': '正码五', '正码六': '正码六',
+                '正码1': '正码一', '正码2': '正码二', '正码3': '正码三',
+                '正码4': '正码四', '正码5': '正码五', '正码6': '正码六'
+            }
+            for key, value in position_mapping.items():
+                if key in specific_part:
+                    return value
+            return '正码一'  # 默认
+        
+        # 原有的标准化逻辑
+        position_mapping = {
+            '正码一': '正码一', '正1': '正码一', '正码1': '正码一', '正一': '正码一',
+            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', '正二': '正码二',
+            '正码三': '正码三', '正3': '正码三', '正码3': '正码三', '正三': '正码三',
+            '正码四': '正码四', '正4': '正码四', '正码4': '正码四', '正四': '正码四',
+            '正码五': '正码五', '正5': '正码五', '正码5': '正码五', '正五': '正码五',
+            '正码六': '正码六', '正6': '正码六', '正码6': '正码六', '正六': '正码六',
+            # 处理带冒号的格式
+            '正码一:': '正码一', '正码二:': '正码二', '正码三:': '正码三',
+            '正码四:': '正码四', '正码五:': '正码五', '正码六:': '正码六',
+            # 默认映射
+            '未知位置': '正码一'
+        }
+        
+        # 直接映射
+        if position_str in position_mapping:
+            return position_mapping[position_str]
+        
+        # 模糊匹配
+        for key, value in position_mapping.items():
+            if key in position_str:
+                return value
+        
+        # 如果包含数字，尝试提取数字并映射
+        digit_match = re.search(r'\d', position_str)
+        if digit_match:
+            digit = digit_match.group()
+            digit_mapping = {
+                '1': '正码一', '2': '正码二', '3': '正码三',
+                '4': '正码四', '5': '正码五', '6': '正码六'
+            }
+            if digit in digit_mapping:
+                return digit_mapping[digit]
+        
+        return position_str
+    
+    def _normalize_pk10_position_enhanced(self, position):
+        """增强版PK10位置标准化 - 处理带空格的位置"""
+        position_str = str(position).strip()
+        
+        # 首先处理空格问题
+        position_clean = position_str.replace(' ', '').replace(' ', '')  # 处理普通空格和特殊空格
+        
+        position_mapping = {
+            '冠军': '冠军', '第1名': '冠军', '第一名': '冠军', '1': '冠军', '1st': '冠军',
+            '前一': '冠军',
+            '亚军': '亚军', '第2名': '亚军', '第二名': '亚军', '2': '亚军', '2nd': '亚军',
+            '季军': '第三名', '第3名': '第三名', '第三名': '第三名', '三名': '第三名', '3': '第三名', '3rd': '第三名',
+            '第4名': '第四名', '第四名': '第四名', '四名': '第四名', '4': '第四名', '4th': '第四名',
+            '第5名': '第五名', '第五名': '第五名', '五名': '第五名', '5': '第五名', '5th': '第五名',
+            '第6名': '第六名', '第六名': '第六名', '六名': '第六名', '6': '第六名', '6th': '第六名',
+            '第7名': '第七名', '第七名': '第七名', '七名': '第七名', '7': '第七名', '7th': '第七名',
+            '第8名': '第八名', '第八名': '第八名', '八名': '第八名', '8': '第八名', '8th': '第八名',
+            '第9名': '第九名', '第九名': '第九名', '九名': '第九名', '9': '第九名', '9th': '第九名',
+            '第10名': '第十名', '第十名': '第十名', '十名': '第十名', '10': '第十名', '10th': '第十名'
+        }
+        
+        # 直接映射（使用清理后的位置）
+        if position_clean in position_mapping:
+            return position_mapping[position_clean]
+        
+        # 模糊匹配
+        for key, value in position_mapping.items():
+            if key in position_clean:
+                return value
+        
+        # 处理带冒号的格式
+        if position_clean.endswith(':'):
+            clean_position = position_clean[:-1].strip()
+            if clean_position in position_mapping:
+                return position_mapping[clean_position]
+            for key, value in position_mapping.items():
+                if key in clean_position:
+                    return value
+        
+        # 如果还是无法识别，尝试更宽松的匹配
+        position_lower = position_clean.lower()
+        if '九' in position_lower or '9' in position_lower:
+            return '第九名'
+        if '亚' in position_lower or '2' in position_lower:
+            return '亚军'
+        if '冠' in position_lower or '1' in position_lower:
+            return '冠军'
+        if '季' in position_lower or '3' in position_lower:
+            return '第三名'
+        
+        return position_clean
 
     def parse_play_content_enhanced(self, content, current_category, lottery_type):
         """增强版内容解析 - 返回实际玩法分类和投注内容"""
@@ -2088,7 +2203,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测"""
+        """PK10龙虎详细检测 - 修复位置判断"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
@@ -2099,16 +2214,25 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
+            # 使用增强版位置标准化
+            normalized_category = self._normalize_pk10_position_enhanced(category)
+            
             # 确定位置
-            if '冠军' in category:
+            if '冠军' in normalized_category or '前一' in normalized_category:
                 position = '冠军'
-            elif '亚军' in category:
+            elif '亚军' in normalized_category:
                 position = '亚军'
-            elif '季军' in category:
-                position = '季军'
+            elif '季军' in normalized_category or '第三名' in normalized_category:
+                position = '第三名'
+            elif '第四名' in normalized_category:
+                position = '第四名'
+            elif '第五名' in normalized_category:
+                position = '第五名'
             else:
                 # 从内容推断位置
                 position = self.data_analyzer._infer_pk10_position_from_content(content)
+                # 对推断的位置也进行标准化
+                position = self._normalize_pk10_position_enhanced(position)
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
@@ -2851,45 +2975,6 @@ class AnalysisEngine:
                         '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正码1-6矛盾')
                     }
                     self._add_unique_result(results, '正码1-6矛盾', record)
-    
-    def _normalize_zhengma_position(self, position):
-        """标准化正码位置名称 - 修复版本"""
-        position_mapping = {
-            # 中文标准格式
-            '正码一': '正码一', '正1': '正码一', '正码1': '正码一',
-            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', 
-            '正码三': '正码三', '正3': '正码三', '正码3': '正码三',
-            '正码四': '正码四', '正4': '正码四', '正码4': '正码四',
-            '正码五': '正码五', '正5': '正码五', '正码5': '正码五',
-            '正码六': '正码六', '正6': '正码六', '正码6': '正码六',
-            # 处理可能的数字格式
-            '1': '正码一', '2': '正码二', '3': '正码三',
-            '4': '正码四', '5': '正码五', '6': '正码六',
-            # 默认映射
-            '未知位置': '正码一'
-        }
-        
-        position = position.strip()
-        
-        # 直接映射
-        if position in position_mapping:
-            return position_mapping[position]
-        
-        # 模糊匹配
-        for key, value in position_mapping.items():
-            if key in position:
-                return value
-        
-        # 如果包含数字，尝试提取数字并映射
-        import re
-        digit_match = re.search(r'\d', position)
-        if digit_match:
-            digit = digit_match.group()
-            if digit in position_mapping:
-                return position_mapping[digit]
-        
-        # 返回原位置，但确保至少是中文格式
-        return position
 
     def _extract_specific_zhengte_position(self, content, category):
         """精确提取正特的具体位置"""
@@ -3557,24 +3642,23 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 首先从玩法分类中精确推断位置
-            inferred_position = self._infer_zhengma_position_from_category(category)
+            # 使用增强版位置标准化
+            normalized_category = self._normalize_zhengma_position_enhanced(category)
             
             # 使用统一解析器解析正码内容
             bets_by_position = ContentParser.parse_lhc_zhengma_content(content)
             
-            # 如果没有解析出位置，使用推断的位置
+            # 如果没有解析出位置，使用从分类推断的位置
             if not bets_by_position or all(pos == '未知位置' for pos in bets_by_position.keys()):
-                if inferred_position:
-                    # 从内容中提取波色
-                    waves = self._extract_wave_from_zhengma_content(content)
-                    if waves:
-                        position_waves[inferred_position].update(waves)
+                # 从内容中提取波色
+                waves = self._extract_wave_from_zhengma_content(content)
+                if waves:
+                    position_waves[normalized_category].update(waves)
             else:
                 # 使用解析出的位置
                 for position, bets in bets_by_position.items():
                     # 标准化位置名称
-                    normalized_position = self._normalize_zhengma_position(position)
+                    normalized_position = self._normalize_zhengma_position_enhanced(position)
                     
                     # 检查每个投注项的波色
                     for bet in bets:
@@ -3678,9 +3762,26 @@ class AnalysisEngine:
         return waves
     
     def _normalize_zhengma_position(self, position):
-        """标准化正码位置名称 - 增强版本"""
+        """标准化正码位置名称 - 增强版本（支持正码1-6_正码三格式）"""
+        position_str = str(position).strip()
+        
+        # 处理"正码1-6_正码三"格式
+        if '正码1-6_' in position_str:
+            # 提取具体位置部分
+            specific_part = position_str.replace('正码1-6_', '').strip()
+            position_mapping = {
+                '正码一': '正码一', '正码二': '正码二', '正码三': '正码三',
+                '正码四': '正码四', '正码五': '正码五', '正码六': '正码六',
+                '正码1': '正码一', '正码2': '正码二', '正码3': '正码三',
+                '正码4': '正码四', '正码5': '正码五', '正码6': '正码六'
+            }
+            for key, value in position_mapping.items():
+                if key in specific_part:
+                    return value
+            return '正码一'  # 默认
+        
+        # 原有的标准化逻辑
         position_mapping = {
-            # 中文标准格式
             '正码一': '正码一', '正1': '正码一', '正码1': '正码一', '正一': '正码一',
             '正码二': '正码二', '正2': '正码二', '正码2': '正码二', '正二': '正码二',
             '正码三': '正码三', '正3': '正码三', '正码3': '正码三', '正三': '正码三',
@@ -3694,20 +3795,18 @@ class AnalysisEngine:
             '未知位置': '正码一'
         }
         
-        position = position.strip()
-        
         # 直接映射
-        if position in position_mapping:
-            return position_mapping[position]
+        if position_str in position_mapping:
+            return position_mapping[position_str]
         
         # 模糊匹配
         for key, value in position_mapping.items():
-            if key in position:
+            if key in position_str:
                 return value
         
         # 如果包含数字，尝试提取数字并映射
         import re
-        digit_match = re.search(r'\d', position)
+        digit_match = re.search(r'\d', position_str)
         if digit_match:
             digit = digit_match.group()
             digit_mapping = {
@@ -3718,7 +3817,7 @@ class AnalysisEngine:
                 return digit_mapping[digit]
         
         # 返回原位置
-        return position
+        return position_str
 
     # =============== 3D系列分析方法 ===============
     def analyze_3d_patterns(self, df):
