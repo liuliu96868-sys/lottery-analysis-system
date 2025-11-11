@@ -1761,6 +1761,72 @@ class AnalysisEngine:
         self.normalizer = PlayCategoryNormalizer()
         self.seen_records = set()  # 用于记录已检测的记录
 
+    def _normalize_zhengma_position_complete(self, position):
+        """完全重写的正码位置标准化函数"""
+        position_str = str(position).strip()
+        
+        # 调试信息
+        print(f"正码位置标准化 - 输入: '{position_str}'")
+        
+        # 处理各种正码格式
+        if '正码1-6_正码一' in position_str or '正码一' in position_str:
+            result = '正码一'
+        elif '正码1-6_正码二' in position_str or '正码二' in position_str:
+            result = '正码二'
+        elif '正码1-6_正码三' in position_str or '正码三' in position_str:
+            result = '正码三'
+        elif '正码1-6_正码四' in position_str or '正码四' in position_str:
+            result = '正码四'
+        elif '正码1-6_正码五' in position_str or '正码五' in position_str:
+            result = '正码五'
+        elif '正码1-6_正码六' in position_str or '正码六' in position_str:
+            result = '正码六'
+        elif '正码1-6' in position_str:
+            # 对于通用正码1-6，默认返回正码一
+            result = '正码一'
+        else:
+            # 默认情况
+            result = '正码一'
+        
+        print(f"正码位置标准化 - 输出: '{result}'")
+        return result
+
+    def _extract_dragon_tiger_position_complete(self, category, content):
+        """完全重写的龙虎位置提取函数"""
+        category_str = str(category).strip()
+        content_str = str(content)
+        
+        # 调试信息
+        print(f"龙虎位置提取 - 输入分类: '{category_str}', 输入内容: '{content_str}'")
+        
+        # 处理各种龙虎格式
+        if '冠军' in category_str or '冠 军' in category_str or '前一' in category_str:
+            result = '冠军'
+        elif '亚军' in category_str or '亚 军' in category_str:
+            result = '亚军'
+        elif '季军' in category_str or '第三名' in category_str:
+            result = '第三名'
+        elif '第四名' in category_str:
+            result = '第四名'
+        elif '第五名' in category_str:
+            result = '第五名'
+        elif '第六名' in category_str:
+            result = '第六名'
+        elif '第七名' in category_str:
+            result = '第七名'
+        elif '第八名' in category_str:
+            result = '第八名'
+        elif '第九名' in category_str:
+            result = '第九名'
+        elif '第十名' in category_str:
+            result = '第十名'
+        else:
+            # 默认情况
+            result = '冠军'
+        
+        print(f"龙虎位置提取 - 输出: '{result}'")
+        return result
+
     def _normalize_zhengma_position_final(self, position):
         """最终版正码位置标准化 - 确保准确判断"""
         position_str = str(position).strip()
@@ -1861,8 +1927,7 @@ class AnalysisEngine:
         return '冠军'
 
     def _analyze_lhc_zhengma_wave_detailed_fixed(self, account, lottery, period, group, results):
-        """修复版：分析六合彩正码中的波色投注 - 使用最终版位置判断"""
-        # 正码相关的玩法分类
+        """修复版：分析六合彩正码中的波色投注"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
@@ -1884,8 +1949,8 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 使用最终版位置提取方法
-            position = self._normalize_zhengma_position_final(category)
+            # 使用新的位置提取方法
+            position = self._normalize_zhengma_position_complete(category)
             
             # 提取波色
             waves = self._extract_wave_strict(content)
@@ -1913,7 +1978,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, f'{position}波色全包', record)
 
     def _analyze_pk10_dragon_tiger_detailed_fixed(self, account, lottery, period, group, results):
-        """修复版：PK10龙虎详细检测 - 使用最终版位置判断"""
+        """修复版：PK10龙虎详细检测"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
@@ -1924,8 +1989,8 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 使用最终版位置提取方法
-            position = self._extract_dragon_tiger_position_final(category, content)
+            # 使用新的位置提取方法
+            position = self._extract_dragon_tiger_position_complete(category, content)
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
@@ -2899,7 +2964,7 @@ class AnalysisEngine:
 
     # =============== 六合彩分析方法 ===============
     def analyze_lhc_patterns(self, df):
-        """分析六合彩投注模式"""
+        """分析六合彩投注模式 - 修复版"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
@@ -5379,6 +5444,37 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
+                    # 添加详细的调试信息
+                    st.subheader("🔧 详细调试信息")
+                    
+                    # 测试用例1: 龙虎位置检测
+                    st.write("### 测试用例1: 龙虎位置检测")
+                    test_cases_dragon_tiger = [
+                        ("龙虎_亚 军", "虎", "亚军"),
+                        ("龙虎_冠 军", "龙", "冠军"),
+                        ("龙虎_季军", "龙", "第三名")
+                    ]
+                    
+                    for category, content, expected in test_cases_dragon_tiger:
+                        result = analyzer._extract_dragon_tiger_position_complete(category, content)
+                        st.write(f"分类: '{category}', 内容: '{content}'")
+                        st.write(f"期望: '{expected}', 实际: '{result}', 正确: {result == expected}")
+                    
+                    # 测试用例2: 正码位置检测
+                    st.write("### 测试用例2: 正码位置检测")
+                    test_cases_zhengma = [
+                        ("正码1-6_正码三", "正码三"),
+                        ("正码1-6_正码一", "正码一"),
+                        ("正码1-6_正码二", "正码二"),
+                        ("正码一", "正码一"),
+                        ("正码二", "正码二"),
+                        ("正码三", "正码三")
+                    ]
+                    
+                    for category, expected in test_cases_zhengma:
+                        result = analyzer._normalize_zhengma_position_complete(category)
+                        st.write(f"分类: '{category}'")
+                        st.write(f"期望: '{expected}', 实际: '{result}', 正确: {result == expected}")
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
