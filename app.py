@@ -5497,44 +5497,16 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
-                    # 添加详细的调试信息
-                    st.subheader("🔧 详细调试信息")
-                    
-                    # 测试用例1: 龙虎位置检测
-                    st.write("### 测试用例1: 龙虎位置检测")
-                    test_cases_dragon_tiger = [
-                        ("龙虎_亚 军", "虎", "亚军"),
-                        ("龙虎_冠 军", "龙", "冠军"),
-                        ("龙虎_季军", "龙", "第三名")
-                    ]
-                    
-                    for category, content, expected in test_cases_dragon_tiger:
-                        result = analyzer._extract_dragon_tiger_position_complete(category, content)
-                        st.write(f"分类: '{category}', 内容: '{content}'")
-                        st.write(f"期望: '{expected}', 实际: '{result}', 正确: {result == expected}")
-                    
-                    # 测试用例2: 正码位置检测
-                    st.write("### 测试用例2: 正码位置检测")
-                    test_cases_zhengma = [
-                        ("正码1-6_正码三", "正码三"),
-                        ("正码1-6_正码一", "正码一"),
-                        ("正码1-6_正码二", "正码二"),
-                        ("正码一", "正码一"),
-                        ("正码二", "正码二"),
-                        ("正码三", "正码三")
-                    ]
-                    
-                    for category, expected in test_cases_zhengma:
-                        result = analyzer._normalize_zhengma_position_complete(category)
-                        st.write(f"分类: '{category}'")
-                        st.write(f"期望: '{expected}', 实际: '{result}', 正确: {result == expected}")
-                    
                     # 统一玩法分类
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
                     # 分析投注模式 - 添加调试
                     all_results = {}
                     lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
+                    
+                    # 添加进度条和状态文本
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
                     for i, lottery_type in enumerate(lottery_types):
                         status_text.text(f"正在分析 {lottery_type}...")
@@ -5544,8 +5516,14 @@ def main():
                             df_target = df_normalized[df_normalized['彩种'].apply(analyzer.identify_lottery_type) == 'PK10']
                             grouped = df_target.groupby(['会员账号', '彩种', '期号'])
                             
+                            # 只调试前几个分组，避免输出太多
+                            debug_count = 0
                             for (account, lottery, period), group in grouped:
-                                analyzer.debug_analysis_process(account, lottery, period, group)
+                                if debug_count < 3:  # 只调试前3个分组
+                                    analyzer.debug_analysis_process(account, lottery, period, group)
+                                    debug_count += 1
+                                else:
+                                    break
                             
                             all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
                         elif lottery_type == '六合彩':
@@ -5553,11 +5531,24 @@ def main():
                             df_target = df_normalized[df_normalized['彩种'].apply(analyzer.identify_lottery_type) == 'LHC']
                             grouped = df_target.groupby(['会员账号', '彩种', '期号'])
                             
+                            # 只调试前几个分组，避免输出太多
+                            debug_count = 0
                             for (account, lottery, period), group in grouped:
-                                analyzer.debug_analysis_process(account, lottery, period, group)
+                                if debug_count < 3:  # 只调试前3个分组
+                                    analyzer.debug_analysis_process(account, lottery, period, group)
+                                    debug_count += 1
+                                else:
+                                    break
                             
                             all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
-                        # ... 其他彩种分析 ...
+                        elif lottery_type == '时时彩':
+                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
+                        elif lottery_type == '快三':
+                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
+                        elif lottery_type == '三色彩':
+                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
+                        elif lottery_type == '3D系列':
+                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
                         
                         progress_bar.progress((i + 1) / len(lottery_types))
                     
