@@ -2238,7 +2238,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测 - 简化版位置判断"""
+        """PK10龙虎详细检测 - 使用最终版位置判断"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
@@ -2249,8 +2249,8 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 直接提取位置，不通过复杂逻辑
-            position = self._extract_dragon_tiger_position_direct(category, content)
+            # 使用最终版位置提取方法（新增的方法）
+            position = self._extract_dragon_tiger_position_enhanced_final(category, content)
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
@@ -3676,7 +3676,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
 
     def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
-        """分析六合彩正码中的波色投注 - 彻底重写版本"""
+        """分析六合彩正码中的波色投注 - 使用最终版位置判断"""
         # 正码相关的玩法分类
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
@@ -3695,36 +3695,19 @@ class AnalysisEngine:
             '正码六': set()
         }
         
-        # 记录处理过程用于调试
-        debug_info = []
-        
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 提取位置 - 使用更严格的方法
-            position = self._extract_zhengma_position_strict(category, content)
+            # 使用最终版位置提取方法（新增的方法）
+            position = self._normalize_zhengma_position_enhanced_final(category)
             
-            # 提取波色 - 使用更严格的方法
+            # 提取波色
             waves = self._extract_wave_strict(content)
-            
-            # 记录调试信息
-            debug_info.append(f"分类: {category} -> 位置: {position}, 波色: {waves}, 内容: {content}")
             
             # 只将波色添加到对应的位置
             if position in position_waves:
                 position_waves[position].update(waves)
-        
-        # 输出调试信息
-        print(f"=== 正码波色检测调试信息 ===")
-        print(f"账号: {account}, 期号: {period}")
-        for info in debug_info:
-            print(info)
-        print(f"各位置波色汇总:")
-        for position, waves in position_waves.items():
-            if waves:
-                print(f"  {position}: {waves}")
-        print("=========================")
         
         # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
@@ -4540,6 +4523,105 @@ class AnalysisEngine:
             weight += 35
         
         return weight
+
+    def _normalize_zhengma_position_enhanced_final(self, position):
+        """最终版六合彩正码位置标准化 - 精确处理正码1-6_正码三格式"""
+        position_str = str(position).strip()
+        
+        # 精确处理"正码1-6_正码三"格式
+        if '正码1-6_' in position_str:
+            # 提取具体位置部分
+            specific_part = position_str.replace('正码1-6_', '').strip()
+            position_mapping = {
+                '正码一': '正码一', '正码二': '正码二', '正码三': '正码三',
+                '正码四': '正码四', '正码五': '正码五', '正码六': '正码六',
+                '正码1': '正码一', '正码2': '正码二', '正码3': '正码三',
+                '正码4': '正码四', '正码5': '正码五', '正码6': '正码六'
+            }
+            for key, value in position_mapping.items():
+                if key == specific_part:  # 精确匹配
+                    return value
+            # 如果精确匹配失败，尝试包含匹配
+            for key, value in position_mapping.items():
+                if key in specific_part:
+                    return value
+            return '正码一'  # 默认
+        
+        # 原有的标准化逻辑
+        position_mapping = {
+            '正码一': '正码一', '正1': '正码一', '正码1': '正码一', '正一': '正码一',
+            '正码二': '正码二', '正2': '正码二', '正码2': '正码二', '正二': '正码二',
+            '正码三': '正码三', '正3': '正码三', '正码3': '正码三', '正三': '正码三',
+            '正码四': '正码四', '正4': '正码四', '正码4': '正码四', '正四': '正码四',
+            '正码五': '正码五', '正5': '正码五', '正码5': '正码五', '正五': '正码五',
+            '正码六': '正码六', '正6': '正码六', '正码6': '正码六', '正六': '正码六',
+            # 处理带冒号的格式
+            '正码一:': '正码一', '正码二:': '正码二', '正码三:': '正码三',
+            '正码四:': '正码四', '正码五:': '正码五', '正码六:': '正码六',
+            # 默认映射
+            '未知位置': '正码一'
+        }
+        
+        # 直接映射
+        if position_str in position_mapping:
+            return position_mapping[position_str]
+        
+        # 模糊匹配
+        for key, value in position_mapping.items():
+            if key in position_str:
+                return value
+        
+        # 如果包含数字，尝试提取数字并映射
+        digit_match = re.search(r'\d', position_str)
+        if digit_match:
+            digit = digit_match.group()
+            digit_mapping = {
+                '1': '正码一', '2': '正码二', '3': '正码三',
+                '4': '正码四', '5': '正码五', '6': '正码六'
+            }
+            if digit in digit_mapping:
+                return digit_mapping[digit]
+        
+        return position_str
+
+    def _extract_dragon_tiger_position_enhanced_final(self, category, content):
+        """最终版龙虎位置提取 - 精确处理带空格的位置"""
+        category_str = str(category).strip()
+        content_str = str(content)
+        
+        # 首先处理分类名称中的位置
+        # 清理空格和特殊空格
+        clean_category = category_str.replace(' ', '').replace(' ', '')  # 普通空格和特殊空格
+        
+        # 精确的位置映射
+        position_mapping = {
+            '冠军': ['冠军', '冠军', '前一', '第1名', '第一名', '1st'],
+            '亚军': ['亚军', '第2名', '第二名', '2nd'],
+            '第三名': ['第三名', '季军', '第3名', '三名', '3rd'],
+            '第四名': ['第四名', '第4名', '四名', '4th'],
+            '第五名': ['第五名', '第5名', '五名', '5th'],
+            '第六名': ['第六名', '第6名', '六名', '6th'],
+            '第七名': ['第七名', '第7名', '七名', '7th'],
+            '第八名': ['第八名', '第8名', '八名', '8th'],
+            '第九名': ['第九名', '第9名', '九名', '9th'],
+            '第十名': ['第十名', '第10名', '十名', '10th']
+        }
+        
+        # 在分类名称中查找位置
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in clean_category:
+                    return position
+        
+        # 如果分类中没有明确位置，从内容中查找
+        clean_content = content_str.replace(' ', '').replace(' ', '')
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in clean_content:
+                    return position
+        
+        # 默认返回冠军
+        return '冠军'
 
     def _analyze_detailed_category_patterns(self, account, lottery, period, group, results, 
                                           category_config, extract_method, count_field, 
@@ -5364,8 +5446,6 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
-
-                    analyzer.debug_zhengma_data(df_clean)
                     
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
