@@ -750,23 +750,24 @@ class ContentParser:
             return defaultdict(list)
 
     @staticmethod
+    @staticmethod
     def infer_position_from_content(content, lottery_type):
-        """从内容和彩种类型推断位置"""
+        """从内容和彩种类型推断位置 - 增强版本"""
         content_str = str(content)
         
         if lottery_type == 'PK10':
-            # PK10位置推断逻辑
+            # PK10位置推断逻辑 - 增强
             pk10_positions = {
-                '冠军': ['冠军', '第1名', '第一名', '前一'],
-                '亚军': ['亚军', '第2名', '第二名'],
-                '第三名': ['第三名', '季军', '第3名'],
-                '第四名': ['第四名', '第4名'],
-                '第五名': ['第五名', '第5名'],
-                '第六名': ['第六名', '第6名'],
-                '第七名': ['第七名', '第7名'],
-                '第八名': ['第八名', '第8名'],
-                '第九名': ['第九名', '第9名'],
-                '第十名': ['第十名', '第10名']
+                '冠军': ['冠军', '第1名', '第一名', '前一', '1st', '1'],
+                '亚军': ['亚军', '第2名', '第二名', '2nd', '2'],
+                '第三名': ['第三名', '季军', '第3名', '3rd', '3'],
+                '第四名': ['第四名', '第4名', '4th', '4'],
+                '第五名': ['第五名', '第5名', '5th', '5'],
+                '第六名': ['第六名', '第6名', '6th', '6'],
+                '第七名': ['第七名', '第7名', '7th', '7'],
+                '第八名': ['第八名', '第8名', '8th', '8'],
+                '第九名': ['第九名', '第9名', '9th', '9'],
+                '第十名': ['第十名', '第10名', '10th', '10']
             }
             for position, keywords in pk10_positions.items():
                 for keyword in keywords:
@@ -788,25 +789,30 @@ class ContentParser:
                         return position
         
         elif lottery_type == 'LHC':
-            # 六合彩位置推断逻辑
+            # 六合彩位置推断逻辑 - 增强
             lhc_positions = {
-                '正码1': ['正码一', '正1', '正码1'],
-                '正码2': ['正码二', '正2', '正码2'],
-                '正码3': ['正码三', '正3', '正码3'],
-                '正码4': ['正码四', '正4', '正码4'],
-                '正码5': ['正码五', '正5', '正码5'],
-                '正码6': ['正码六', '正6', '正码6']
+                '正码一': ['正码一', '正1', '正码1', '正一', '正码一特', '正1特'],
+                '正码二': ['正码二', '正2', '正码2', '正二', '正码二特', '正2特'],
+                '正码三': ['正码三', '正3', '正码3', '正三', '正码三特', '正3特'],
+                '正码四': ['正码四', '正4', '正码4', '正四', '正码四特', '正4特'],
+                '正码五': ['正码五', '正5', '正码5', '正五', '正码五特', '正5特'],
+                '正码六': ['正码六', '正6', '正码6', '正六', '正码六特', '正6特']
             }
             for position, keywords in lhc_positions.items():
                 for keyword in keywords:
                     if keyword in content_str:
                         return position
+            
+            # 检查数字
+            for i in range(1, 7):
+                if f'正{i}' in content_str or f'正码{i}' in content_str:
+                    return f'正码{["一","二","三","四","五","六"][i-1]}'
         
         return '未知位置'
 
     @staticmethod
     def infer_position_comprehensive(content, category, lottery_type):
-        """综合考虑玩法和投注内容的位置推断 - 增强空格处理"""
+        """综合考虑玩法和投注内容的位置推断 - 彻底修复版本"""
         # 统一处理空格
         content_str = normalize_spaces(content)
         category_str = normalize_spaces(category)
@@ -815,32 +821,39 @@ class ContentParser:
         position_mappings = {
             'LHC': {
                 # 正码位置映射
-                '正码一': ['正码一', '正1', '正码1', '正一'],
-                '正码二': ['正码二', '正2', '正码2', '正二'],
-                '正码三': ['正码三', '正3', '正码3', '正三'],
-                '正码四': ['正码四', '正4', '正码4', '正四'],
-                '正码五': ['正码五', '正5', '正码5', '正五'],
-                '正码六': ['正码六', '正6', '正码6', '正六'],
+                '正码一': ['正码一', '正1', '正码1', '正一', '正码一特', '正1特'],
+                '正码二': ['正码二', '正2', '正码2', '正二', '正码二特', '正2特'],
+                '正码三': ['正码三', '正3', '正码3', '正三', '正码三特', '正3特'],
+                '正码四': ['正码四', '正4', '正码4', '正四', '正码四特', '正4特'],
+                '正码五': ['正码五', '正5', '正码5', '正五', '正码五特', '正5特'],
+                '正码六': ['正码六', '正6', '正码6', '正六', '正码六特', '正6特'],
                 
-                # 正特位置映射 - 独立
-                '正1特': ['正码一特', '正1特'],
-                '正2特': ['正码二特', '正2特'],
-                '正3特': ['正码三特', '正3特'],
-                '正4特': ['正码四特', '正4特'],
-                '正5特': ['正码五特', '正5特'],
-                '正6特': ['正码六特', '正6特']
+                # 处理带下划线的格式
+                '正码一': ['正码1-6_正码一', '正码1-6_正1', '正码1-6_正码1'],
+                '正码二': ['正码1-6_正码二', '正码1-6_正2', '正码1-6_正码2'],
+                '正码三': ['正码1-6_正码三', '正码1-6_正3', '正码1-6_正码3'],
+                '正码四': ['正码1-6_正码四', '正码1-6_正4', '正码1-6_正码4'],
+                '正码五': ['正码1-6_正码五', '正码1-6_正5', '正码1-6_正码5'],
+                '正码六': ['正码1-6_正码六', '正码1-6_正6', '正码1-6_正码6']
             },
             'PK10': {
                 '冠军': ['冠军', '冠 军', '冠  军', '第1名', '第一名', '前一', '1st', '1'],
                 '亚军': ['亚军', '亚 军', '亚  军', '第2名', '第二名', '2nd', '2'],
-                '第三名': ['第三名', '第3名', '季军', '3rd', '3'],
-                '第四名': ['第四名', '第4名', '4th', '4'],
-                '第五名': ['第五名', '第5名', '5th', '5'],
-                '第六名': ['第六名', '第6名', '6th', '6'],
-                '第七名': ['第七名', '第7名', '7th', '7'],
-                '第八名': ['第八名', '第8名', '8th', '8'],
-                '第九名': ['第九名', '第9名', '9th', '9'],
-                '第十名': ['第十名', '第10名', '10th', '10']
+                '季军': ['季军', '季 军', '季  军', '第3名', '第三名', '3rd', '3'],
+                '第四名': ['第四名', '第4名', '4th', '4', '四名', '四'],
+                '第五名': ['第五名', '第5名', '5th', '5', '五名', '五'],
+                '第六名': ['第六名', '第6名', '6th', '6', '六名', '六'],
+                '第七名': ['第七名', '第7名', '7th', '7', '七名', '七'],
+                '第八名': ['第八名', '第8名', '8th', '8', '八名', '八'],
+                '第九名': ['第九名', '第9名', '9th', '9', '九名', '九'],
+                '第十名': ['第十名', '第10名', '10th', '10', '十名', '十'],
+                
+                # 处理带下划线的格式
+                '冠军': ['龙虎_冠军', '龙虎_冠 军'],
+                '亚军': ['龙虎_亚军', '龙虎_亚 军'], 
+                '季军': ['龙虎_季军', '龙虎_季 军'],
+                '第四名': ['龙虎_第四名', '龙虎_第4名'],
+                '第五名': ['龙虎_第五名', '龙虎_第5名']
             }
         }
         
@@ -2459,31 +2472,32 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
     
     def _extract_position_from_dragon_tiger_category(self, category):
-        """从龙虎玩法分类中精确提取位置 - 增强版本"""
+        """从龙虎玩法分类中精确提取位置 - 彻底修复版本"""
         category_str = str(category).strip()
         
         # 处理所有可能的空格和格式问题
         category_clean = category_str.replace(' ', '').replace(' ', '').replace('_', '').replace('-', '')
         
-        # 完整的位置映射
+        # 完整的位置映射 - 包含所有可能的位置
         position_mapping = {
             '冠军': ['冠军', '冠 军', '冠  军', '第1名', '第一名', '前一', '1st', '1'],
             '亚军': ['亚军', '亚 军', '亚  军', '第2名', '第二名', '2nd', '2'],
             '季军': ['季军', '季 军', '季  军', '第3名', '第三名', '3rd', '3'],
-            '第四名': ['第四名', '第4名', '4th', '4'],
-            '第五名': ['第五名', '第5名', '5th', '5'],
-            '第六名': ['第六名', '第6名', '6th', '6'],
-            '第七名': ['第七名', '第7名', '7th', '7'],
-            '第八名': ['第八名', '第8名', '8th', '8'],
-            '第九名': ['第九名', '第9名', '9th', '9'],
-            '第十名': ['第十名', '第10名', '10th', '10']
+            '第四名': ['第四名', '第4名', '4th', '4', '四名', '四'],
+            '第五名': ['第五名', '第5名', '5th', '5', '五名', '五'],
+            '第六名': ['第六名', '第6名', '6th', '6', '六名', '六'],
+            '第七名': ['第七名', '第7名', '7th', '7', '七名', '七'],
+            '第八名': ['第八名', '第8名', '8th', '8', '八名', '八'],
+            '第九名': ['第九名', '第9名', '9th', '9', '九名', '九'],
+            '第十名': ['第十名', '第10名', '10th', '10', '十名', '十']
         }
         
         # 首先检查完整匹配
         for position, keywords in position_mapping.items():
             for keyword in keywords:
                 keyword_clean = keyword.replace(' ', '')
-                if keyword_clean == category_clean.replace('龙虎', ''):
+                # 处理 "龙虎_冠军" 格式
+                if f"龙虎{keyword_clean}" == category_clean or keyword_clean == category_clean:
                     return position
         
         # 然后检查包含关系
@@ -2493,13 +2507,30 @@ class AnalysisEngine:
                 if keyword_clean in category_clean:
                     return position
         
-        # 处理"龙虎_第四名"这种格式
+        # 处理"龙虎_第四名"这种格式 - 增强处理
         if '龙虎' in category_clean:
             remaining = category_clean.replace('龙虎', '')
             for position, keywords in position_mapping.items():
                 for keyword in keywords:
                     keyword_clean = keyword.replace(' ', '')
                     if keyword_clean in remaining:
+                        return position
+        
+        # 新增：处理带下划线的格式，如"龙虎_第四名"
+        if '_' in category_str:
+            parts = category_str.split('_')
+            if len(parts) > 1:
+                position_part = parts[1].strip()
+                for position, keywords in position_mapping.items():
+                    for keyword in keywords:
+                        if keyword in position_part:
+                            return position
+        
+        # 新增：处理带空格的格式，如"龙虎_季 军"
+        if ' ' in category_str:
+            for position, keywords in position_mapping.items():
+                for keyword in keywords:
+                    if keyword in category_str:
                         return position
         
         # 新增：处理简化的"龙虎"分类
@@ -4070,12 +4101,12 @@ class AnalysisEngine:
         
         # 完整的位置映射
         position_mapping = {
-            '正码一': ['正码一', '正1', '正码1', '正一'],
-            '正码二': ['正码二', '正2', '正码2', '正二'],
-            '正码三': ['正码三', '正3', '正码3', '正三'],
-            '正码四': ['正码四', '正4', '正码4', '正四'],
-            '正码五': ['正码五', '正5', '正码5', '正五'],
-            '正码六': ['正码六', '正6', '正码6', '正六']
+            '正码一': ['正码一', '正1', '正码1', '正一', '正码一特', '正1特'],
+            '正码二': ['正码二', '正2', '正码2', '正二', '正码二特', '正2特'],
+            '正码三': ['正码三', '正3', '正码3', '正三', '正码三特', '正3特'],
+            '正码四': ['正码四', '正4', '正码4', '正四', '正码四特', '正4特'],
+            '正码五': ['正码五', '正5', '正码5', '正五', '正码五特', '正5特'],
+            '正码六': ['正码六', '正6', '正码6', '正六', '正码六特', '正6特']
         }
         
         # 首先检查完整匹配
@@ -4092,7 +4123,7 @@ class AnalysisEngine:
                 if keyword_clean in category_clean:
                     return position
         
-        # 处理"正码1-6_正码一"这种格式
+        # 处理"正码1-6_正码一"这种格式 - 增强处理
         if '正码1-6' in category_clean or '正码16' in category_clean:
             for position, keywords in position_mapping.items():
                 for keyword in keywords:
@@ -4100,10 +4131,34 @@ class AnalysisEngine:
                     if keyword_clean in category_clean:
                         return position
         
+        # 新增：处理带下划线的格式，如"正码1-6_正码三"
+        if '_' in category_str:
+            parts = category_str.split('_')
+            if len(parts) > 1:
+                position_part = parts[1].strip()
+                for position, keywords in position_mapping.items():
+                    for keyword in keywords:
+                        if keyword in position_part:
+                            return position
+        
         # 新增：处理简化的"正码"分类
         if category_clean == '正码':
-            # 对于简化的"正码"分类，我们需要从内容中推断
             return '正码'  # 返回通用标识，后续从内容推断
+        
+        # 新增：处理数字映射
+        digit_mapping = {
+            '1': '正码一',
+            '2': '正码二', 
+            '3': '正码三',
+            '4': '正码四',
+            '5': '正码五',
+            '6': '正码六'
+        }
+        
+        # 检查是否包含数字
+        for digit, position in digit_mapping.items():
+            if digit in category_clean:
+                return position
         
         st.warning(f"⚠️ 无法从玩法分类中提取正码位置: {category_str} -> {category_clean}")
         return '未知位置'
