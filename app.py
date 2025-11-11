@@ -2390,7 +2390,7 @@ class AnalysisEngine:
         return None  # 返回None而不是未知位置，避免误判
 
     def _analyze_pk10_dragon_tiger_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的PK10龙虎检测 - 彻底修复位置识别"""
+        """综合考虑玩法和内容的PK10龙虎检测 - 增强版本"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
@@ -2416,8 +2416,12 @@ class AnalysisEngine:
                 'position_found': None
             }
             
-            # 直接解析玩法分类中的位置
+            # 增强位置提取：先从分类中提取，如果失败则从内容中提取
             position = self._extract_position_from_dragon_tiger_category(category)
+            
+            # 如果位置是通用的"龙虎"，尝试从内容中提取具体位置
+            if position == '龙虎':
+                position = ContentParser.infer_position_from_content(content, 'PK10')
             
             debug_record['position_found'] = position
             
@@ -2455,7 +2459,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
     
     def _extract_position_from_dragon_tiger_category(self, category):
-        """从龙虎玩法分类中精确提取位置 - 彻底修复版本"""
+        """从龙虎玩法分类中精确提取位置 - 增强版本"""
         category_str = str(category).strip()
         
         # 处理所有可能的空格和格式问题
@@ -2497,6 +2501,10 @@ class AnalysisEngine:
                     keyword_clean = keyword.replace(' ', '')
                     if keyword_clean in remaining:
                         return position
+        
+        # 新增：处理简化的"龙虎"分类
+        if category_clean == '龙虎':
+            return '龙虎'  # 返回通用标识，后续从内容推断
         
         st.warning(f"⚠️ 无法从玩法分类中提取位置: {category_str} -> {category_clean}")
         return '未知位置'
@@ -3978,7 +3986,7 @@ class AnalysisEngine:
         return '未知位置'
 
     def _analyze_lhc_zhengma_wave_comprehensive(self, account, lottery, period, group, results):
-        """综合考虑玩法和内容的六合彩正码波色检测 - 彻底修复版本"""
+        """综合考虑玩法和内容的六合彩正码波色检测 - 增强版本"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
@@ -4006,8 +4014,13 @@ class AnalysisEngine:
                 'waves_found': None
             }
             
-            # 直接从玩法分类中提取位置
+            # 增强位置提取：先从分类中提取，如果失败则从内容中提取
             position = self._extract_position_from_zhengma_category_direct(category)
+            
+            # 如果位置是通用的"正码"，尝试从内容中提取具体位置
+            if position == '正码':
+                position = ContentParser.infer_position_from_content(content, 'LHC')
+            
             debug_record['position_found'] = position
             
             # 提取波色
@@ -4086,6 +4099,11 @@ class AnalysisEngine:
                     keyword_clean = keyword.replace(' ', '')
                     if keyword_clean in category_clean:
                         return position
+        
+        # 新增：处理简化的"正码"分类
+        if category_clean == '正码':
+            # 对于简化的"正码"分类，我们需要从内容中推断
+            return '正码'  # 返回通用标识，后续从内容推断
         
         st.warning(f"⚠️ 无法从玩法分类中提取正码位置: {category_str} -> {category_clean}")
         return '未知位置'
