@@ -1830,36 +1830,46 @@ class AnalysisEngine:
         
         print(f"🔍 正码位置标准化 - 开始处理: '{position_str}'")
         
-        # 精确的正码位置映射 - 优先级从高到低
-        position_mapping = {
-            '正码一': ['正码1-6_正码一', '正码一', '正1', '正码1', '正一'],
-            '正码二': ['正码1-6_正码二', '正码二', '正2', '正码2', '正二'],
-            '正码三': ['正码1-6_正码三', '正码三', '正3', '正码3', '正三'],
-            '正码四': ['正码1-6_正码四', '正码四', '正4', '正码4', '正四'],
-            '正码五': ['正码1-6_正码五', '正码五', '正5', '正码5', '正五'],
-            '正码六': ['正码1-6_正码六', '正码六', '正6', '正码6', '正六']
-        }
+        # 精确的正码位置映射 - 按优先级排序
+        position_mapping = [
+            # 最高优先级：完整格式
+            ('正码一', ['正码1-6_正码一', '正码一', '正1', '正码1', '正一']),
+            ('正码二', ['正码1-6_正码二', '正码二', '正2', '正码2', '正二']),
+            ('正码三', ['正码1-6_正码三', '正码三', '正3', '正码3', '正三']),
+            ('正码四', ['正码1-6_正码四', '正码四', '正4', '正码4', '正四']),
+            ('正码五', ['正码1-6_正码五', '正码五', '正5', '正码5', '正五']),
+            ('正码六', ['正码1-6_正码六', '正码六', '正6', '正码6', '正六'])
+        ]
         
-        # 第一轮：精确匹配（完全相等）
-        for pos_name, keywords in position_mapping.items():
-            for keyword in keywords:
-                if position_str == keyword:
-                    print(f"✅ 正码位置标准化 - 精确匹配: '{position_str}' -> '{pos_name}'")
-                    return pos_name
-        
-        # 第二轮：包含匹配
-        for pos_name, keywords in position_mapping.items():
+        # 第一轮：包含匹配（更宽松的匹配）
+        for pos_name, keywords in position_mapping:
             for keyword in keywords:
                 if keyword in position_str:
-                    print(f"✅ 正码位置标准化 - 包含匹配: '{position_str}' -> '{pos_name}'")
+                    print(f"✅ 正码位置标准化 - 包含匹配: '{position_str}' -> '{pos_name}' (关键词: '{keyword}')")
                     return pos_name
         
-        # 第三轮：处理通用分类
-        if position_str == '正码1-6':
-            print(f"🟡 正码位置标准化 - 通用正码1-6，使用默认: '正码一'")
+        # 第二轮：处理数字匹配
+        if '1' in position_str or '一' in position_str:
+            print(f"🟡 正码位置标准化 - 数字推断1 -> '正码一'")
             return '正码一'
+        elif '2' in position_str or '二' in position_str:
+            print(f"🟡 正码位置标准化 - 数字推断2 -> '正码二'")
+            return '正码二'
+        elif '3' in position_str or '三' in position_str:
+            print(f"🟡 正码位置标准化 - 数字推断3 -> '正码三'")
+            return '正码三'
+        elif '4' in position_str or '四' in position_str:
+            print(f"🟡 正码位置标准化 - 数字推断4 -> '正码四'")
+            return '正码四'
+        elif '5' in position_str or '五' in position_str:
+            print(f"🟡 正码位置标准化 - 数字推断5 -> '正码五'")
+            return '正码五'
+        elif '6' in position_str or '六' in position_str:
+            print(f"🟡 正码位置标准化 - 数字推断6 -> '正码六'")
+            return '正码六'
         
-        print(f"❌ 正码位置标准化 - 未找到匹配，使用默认: '正码一' (输入: '{position_str}')")
+        # 默认
+        print(f"❌ 正码位置标准化 - 未找到匹配，使用默认: '正码一'")
         return '正码一'
 
     def _extract_dragon_tiger_position_complete(self, category, content):
@@ -2001,7 +2011,7 @@ class AnalysisEngine:
         return '冠军'
 
     def _analyze_lhc_zhengma_wave_detailed_fixed(self, account, lottery, period, group, results):
-        """终极修复版：分析六合彩正码中的波色投注"""
+        """终极简化修复版：分析六合彩正码中的波色投注"""
         print(f"\n🎯 开始分析正码波色 - 账户: {account}, 期号: {period}")
         
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
@@ -2023,37 +2033,44 @@ class AnalysisEngine:
             '正码六': set()
         }
         
-        for idx, (_, row) in enumerate(zhengma_group.iterrows()):
+        # 先收集所有记录的信息
+        records_info = []
+        for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
-            
-            print(f"\n--- 处理第 {idx+1} 条记录 ---")
-            print(f"原始分类: '{category}'")
-            print(f"投注内容: '{content}'")
-            
-            # 使用修复后的位置提取方法
             position = self._normalize_zhengma_position_complete(category)
-            
-            # 提取波色
             waves = self._extract_wave_strict(content)
             
-            print(f"最终分配 - 位置: '{position}', 波色: {waves}")
+            records_info.append({
+                'category': category,
+                'content': content,
+                'position': position,
+                'waves': waves
+            })
             
-            # 只将波色添加到对应的位置
+            # 添加到对应位置
             if position in position_waves:
                 position_waves[position].update(waves)
-                print(f"✅ 已添加到位置 '{position}'")
-            else:
-                print(f"❌ 未知位置: '{position}'")
+        
+        # 打印所有记录信息
+        print(f"\n📋 所有记录详细信息:")
+        for i, info in enumerate(records_info):
+            print(f"  记录{i+1}: 分类='{info['category']}', 内容='{info['content']}', 位置='{info['position']}', 波色={info['waves']}")
         
         # 检查每个位置的波色全包情况
         traditional_waves = {'红波', '蓝波', '绿波'}
-        print(f"\n📋 最终位置波色统计:")
+        print(f"\n📊 最终位置波色统计:")
         for position, waves in position_waves.items():
             print(f"  {position}: {waves}")
             
             if traditional_waves.issubset(waves):
                 print(f"🚨 检测到 {position} 波色全包!")
+                # 找到导致全包的具体记录
+                culprit_records = []
+                for info in records_info:
+                    if info['position'] == position and info['waves']:
+                        culprit_records.append(f"{info['content']}({info['waves']})")
+                
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
@@ -2063,7 +2080,7 @@ class AnalysisEngine:
                     '违规类型': f'{position}波色全包',
                     '投注波色数': len(traditional_waves),
                     '投注波色': sorted(list(traditional_waves)),
-                    '投注内容': f"{position}波色全包: {', '.join(sorted(traditional_waves))}",
+                    '投注内容': f"{position}波色全包: {', '.join(culprit_records)}",
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
@@ -3077,14 +3094,22 @@ class AnalysisEngine:
         if len(df_target) == 0:
             return results
         
-        # 使用独立的尾数检测方法
-        self._analyze_lhc_tail_plays(df_target, results)
-        
-        # 其他检测方法
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            # 使用修复版的正码波色检测
+            # 先进行详细调试
+            print(f"\n" + "="*50)
+            print(f"开始分析账户: {account}, 期号: {period}")
+            print(f"找到 {len(group)} 条记录")
+            
+            # 显示所有相关记录
+            zhengma_records = group[group['玩法分类'].str.contains('正码', na=False)]
+            if not zhengma_records.empty:
+                print(f"正码相关记录:")
+                for _, row in zhengma_records.iterrows():
+                    print(f"  分类: '{row['玩法分类']}', 内容: '{row['内容']}'")
+            
+            # 然后进行分析
             self._analyze_lhc_zhengma_wave_detailed_fixed(account, lottery, period, group, results)
             
             # 其他检测方法保持不变
@@ -3991,31 +4016,18 @@ class AnalysisEngine:
             self._add_unique_result(results, '半波单双全包', record)
    
     def _extract_wave_strict(self, content):
-        """严格提取波色 - 终极修复版"""
+        """严格提取波色 - 简化修复版"""
         content_str = str(content).strip()
         waves = set()
         
-        print(f"🔍 波色提取 - 开始处理: '{content_str}'")
-        
         # 精确匹配波色关键词
-        wave_keywords = {
-            '红波': ['红波', '紅色波'],
-            '蓝波': ['蓝波', '藍波'], 
-            '绿波': ['绿波', '綠波']
-        }
+        if '红波' in content_str:
+            waves.add('红波')
+        if '蓝波' in content_str:
+            waves.add('蓝波') 
+        if '绿波' in content_str:
+            waves.add('绿波')
         
-        # 按逗号分割投注内容
-        bet_items = [item.strip() for item in content_str.split(',')]
-        
-        for item in bet_items:
-            for wave_name, keywords in wave_keywords.items():
-                for keyword in keywords:
-                    if keyword == item:  # 精确匹配
-                        print(f"✅ 波色提取 - 找到波色: '{item}' -> '{wave_name}'")
-                        waves.add(wave_name)
-                        break
-        
-        print(f"🔍 波色提取 - 最终结果: {waves}")
         return waves
   
     def _extract_wave_from_zhengma_content(self, content):
