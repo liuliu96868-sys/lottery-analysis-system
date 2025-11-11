@@ -3201,6 +3201,7 @@ class AnalysisEngine:
         
         # 按具体位置分别统计 - 使用原有逻辑
         position_numbers = defaultdict(set)
+        position_bets = defaultdict(lambda: defaultdict(set))
         
         for category in zhengte_categories:
             category_group = group[group['玩法分类'] == category]
