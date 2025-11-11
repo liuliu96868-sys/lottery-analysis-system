@@ -1740,6 +1740,11 @@ class PlayCategoryNormalizer:
         # 首先使用基本标准化
         basic_normalized = self.normalize_category(category_str)
         
+        # 特别处理龙虎带下划线的格式 - 在标准化阶段就保留具体位置
+        if lottery_type == 'PK10' and '龙虎_' in category_str:
+            # 直接保留原始分类，让位置提取方法处理
+            return category_str
+        
         # 特别处理正码1-6格式 - 在标准化阶段就提取具体位置
         if lottery_type == 'LHC' and '正码1-6' in category_str and '_' in category_str:
             parts = category_str.split('_')
@@ -1944,7 +1949,13 @@ class AnalysisEngine:
         logger.info("正在统一玩法分类...")
         
         if '玩法' in df.columns:
-            # === 替换这一行：使用综合的玩法分类标准化 ===
+            # 添加分类标准化调试
+            st.write("🔍 开始玩法分类标准化...")
+            
+            # 显示前10个原始分类
+            sample_categories = df['玩法'].head(10).tolist()
+            st.write(f"🔍 前10个原始分类: {sample_categories}")
+            
             df['玩法分类'] = df.apply(
                 lambda row: self.normalizer.normalize_category_comprehensive(
                     row['玩法'], 
@@ -1953,6 +1964,10 @@ class AnalysisEngine:
                 ), 
                 axis=1
             )
+            
+            # 显示标准化后的分类
+            sample_normalized = df['玩法分类'].head(10).tolist()
+            st.write(f"🔍 前10个标准化后分类: {sample_normalized}")
                 
             with st.expander("🎯 玩法分类统计", expanded=False):
                 category_counts = df['玩法分类'].value_counts()
@@ -1962,7 +1977,7 @@ class AnalysisEngine:
                 if len(category_counts) > 15:
                     st.info(f"还有{len(category_counts) - 15}个分类未显示")
         
-        return df 
+        return df
     
     def identify_lottery_type(self, lottery_name):
         """识别彩种类型"""
@@ -2455,6 +2470,7 @@ class AnalysisEngine:
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
         
         if dragon_tiger_group.empty:
+            st.write(f"❌ 没有找到龙虎投注记录 - {account} {period}")
             return
         
         position_bets = defaultdict(set)
@@ -2475,56 +2491,13 @@ class AnalysisEngine:
                 'position_found': None
             }
             
+            st.write(f"🔍 处理龙虎记录: 分类='{category}', 内容='{content}'")
+            
             # 增强位置提取：结合分类和内容
             position = None
             
             # 首先从分类中提取位置
-            if '冠军' in category or '第1名' in category:
-                position = '冠军'
-            elif '亚军' in category or '第2名' in category:
-                position = '亚军'
-            elif '季军' in category or '第3名' in category:
-                position = '季军'
-            elif '第四名' in category or '第4名' in category:
-                position = '第四名'
-            elif '第五名' in category or '第5名' in category:
-                position = '第五名'
-            elif '第六名' in category or '第6名' in category:
-                position = '第六名'
-            elif '第七名' in category or '第7名' in category:
-                position = '第七名'
-            elif '第八名' in category or '第8名' in category:
-                position = '第八名'
-            elif '第九名' in category or '第9名' in category:
-                position = '第九名'
-            elif '第十名' in category or '第10名' in category:
-                position = '第十名'
-            
-            # 如果分类中没有明确位置，从内容中提取
-            if not position:
-                if '冠军' in content or '第1名' in content:
-                    position = '冠军'
-                elif '亚军' in content or '第2名' in content:
-                    position = '亚军'
-                elif '季军' in content or '第3名' in content:
-                    position = '季军'
-                elif '第四名' in content or '第4名' in content:
-                    position = '第四名'
-                elif '第五名' in content or '第5名' in content:
-                    position = '第五名'
-                elif '第六名' in content or '第6名' in content:
-                    position = '第六名'
-                elif '第七名' in content or '第7名' in content:
-                    position = '第七名'
-                elif '第八名' in content or '第8名' in content:
-                    position = '第八名'
-                elif '第九名' in content or '第9名' in content:
-                    position = '第九名'
-                elif '第十名' in content or '第10名' in content:
-                    position = '第十名'
-                else:
-                    # 如果都没有，使用通用位置
-                    position = '未知位置'
+            position = self._extract_position_from_dragon_tiger_category(category)
             
             debug_record['position_found'] = position
             
@@ -2534,8 +2507,10 @@ class AnalysisEngine:
             if position and dragon_tiger:
                 position_bets[position].update(dragon_tiger)
                 debug_record['dragon_tiger'] = dragon_tiger
+                st.write(f"✅ 成功提取: 位置={position}, 龙虎={dragon_tiger}")
             else:
                 debug_record['dragon_tiger'] = '未提取到或位置为空'
+                st.write(f"❌ 提取失败: 位置={position}, 龙虎={dragon_tiger}")
             
             debug_records.append(debug_record)
         
@@ -2560,83 +2535,101 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+            elif position and position != '未知位置' and bets:
+                st.write(f"ℹ️ 位置 {position} 有投注但无矛盾: {bets}")
     
     def _extract_position_from_dragon_tiger_category(self, category):
         """从龙虎玩法分类中精确提取位置 - 终极修复版本"""
         category_str = str(category).strip()
         
-        # 调试信息
-        st.write(f"🔍 龙虎位置提取调试 - 原始分类: '{category_str}'")
+        # 详细调试信息
+        st.write(f"🔍 龙虎位置提取调试 - 开始处理: '{category_str}'")
         
-        # 处理所有可能的空格和格式问题
-        category_clean = category_str.replace(' ', '').replace(' ', '').replace('_', '').replace('-', '')
-        st.write(f"🔍 龙虎位置提取调试 - 清理后: '{category_clean}'")
-        
-        # 完整的位置映射 - 包含所有可能的位置
+        # 完整的位置映射 - 包含所有可能的位置和变体
         position_mapping = {
-            '冠军': ['冠军', '冠 军', '冠  军', '第1名', '第一名', '前一', '1st', '1'],
-            '亚军': ['亚军', '亚 军', '亚  军', '第2名', '第二名', '2nd', '2'],
-            '季军': ['季军', '季 军', '季  军', '第3名', '第三名', '3rd', '3'],
-            '第四名': ['第四名', '第4名', '4th', '4', '四名', '四'],
-            '第五名': ['第五名', '第5名', '5th', '5', '五名', '五'],
-            '第六名': ['第六名', '第6名', '6th', '6', '六名', '六'],
-            '第七名': ['第七名', '第7名', '7th', '7', '七名', '七'],
-            '第八名': ['第八名', '第8名', '8th', '8', '八名', '八'],
-            '第九名': ['第九名', '第9名', '9th', '9', '九名', '九'],
-            '第十名': ['第十名', '第10名', '10th', '10', '十名', '十']
+            '冠军': ['冠军', '冠 军', '冠  军', '第1名', '第一名', '前一', '1st', '1', '一'],
+            '亚军': ['亚军', '亚 军', '亚  军', '第2名', '第二名', '2nd', '2', '二'],
+            '季军': ['季军', '季 军', '季  军', '第3名', '第三名', '3rd', '3', '三'],
+            '第四名': ['第四名', '第4名', '4th', '4', '四名', '四', '4名'],
+            '第五名': ['第五名', '第5名', '5th', '5', '五名', '五', '5名'],
+            '第六名': ['第六名', '第6名', '6th', '6', '六名', '六', '6名'],
+            '第七名': ['第七名', '第7名', '7th', '7', '七名', '七', '7名'],
+            '第八名': ['第八名', '第8名', '8th', '8', '八名', '八', '8名'],
+            '第九名': ['第九名', '第9名', '9th', '9', '九名', '九', '9名'],
+            '第十名': ['第十名', '第10名', '10th', '10', '十名', '十', '10名']
         }
         
-        # 首先检查完整匹配
+        # 方法1：直接处理带下划线的格式，如"龙虎_第四名"
+        if '_' in category_str:
+            st.write(f"🔍 检测到下划线格式: {category_str}")
+            parts = category_str.split('_')
+            if len(parts) >= 2:
+                position_part = parts[1].strip()
+                st.write(f"🔍 提取位置部分: '{position_part}'")
+                
+                # 在位置部分中查找位置关键词
+                for position, keywords in position_mapping.items():
+                    for keyword in keywords:
+                        if keyword in position_part:
+                            st.write(f"✅ 下划线格式匹配成功: {category_str} -> {position} (关键词: {keyword})")
+                            return position
+        
+        # 方法2：处理带空格的格式，如"龙虎_季 军"
+        if ' ' in category_str or ' ' in category_str:
+            st.write(f"🔍 检测到空格格式: {category_str}")
+            # 直接在整个字符串中查找位置关键词
+            for position, keywords in position_mapping.items():
+                for keyword in keywords:
+                    if keyword in category_str:
+                        st.write(f"✅ 空格格式匹配成功: {category_str} -> {position} (关键词: {keyword})")
+                        return position
+        
+        # 方法3：清理后匹配
+        category_clean = category_str.replace(' ', '').replace(' ', '').replace('_', '').replace('-', '')
+        st.write(f"🔍 清理后字符串: '{category_clean}'")
+        
+        # 检查完整匹配
         for position, keywords in position_mapping.items():
             for keyword in keywords:
                 keyword_clean = keyword.replace(' ', '')
                 # 处理 "龙虎冠军" 格式
                 if f"龙虎{keyword_clean}" == category_clean:
-                    st.write(f"✅ 完整匹配: {category_clean} -> {position}")
+                    st.write(f"✅ 完整匹配成功: {category_clean} -> {position}")
                     return position
                 # 直接匹配
                 if keyword_clean == category_clean:
-                    st.write(f"✅ 直接匹配: {category_clean} -> {position}")
+                    st.write(f"✅ 直接匹配成功: {category_clean} -> {position}")
                     return position
         
-        # 然后检查包含关系
+        # 方法4：包含关系匹配
         for position, keywords in position_mapping.items():
             for keyword in keywords:
                 keyword_clean = keyword.replace(' ', '')
                 if keyword_clean in category_clean:
-                    st.write(f"✅ 包含匹配: {category_clean} -> {position} (关键词: {keyword_clean})")
+                    st.write(f"✅ 包含匹配成功: {category_clean} -> {position} (关键词: {keyword_clean})")
                     return position
         
-        # 处理带下划线的格式，如"龙虎_第四名"
-        if '_' in category_str:
-            parts = category_str.split('_')
-            if len(parts) > 1:
-                position_part = parts[1].strip()
-                for position, keywords in position_mapping.items():
-                    for keyword in keywords:
-                        if keyword in position_part:
-                            st.write(f"✅ 下划线格式: {category_str} -> {position}")
-                            return position
-        
-        # 处理带空格的格式，如"龙虎_季 军"
-        if ' ' in category_str or ' ' in category_str:
-            for position, keywords in position_mapping.items():
-                for keyword in keywords:
-                    if keyword in category_str:
-                        st.write(f"✅ 空格格式: {category_str} -> {position}")
-                        return position
-        
-        # 处理数字映射
+        # 方法5：数字映射
         digit_mapping = {
             '1': '冠军', '2': '亚军', '3': '季军', '4': '第四名', '5': '第五名',
             '6': '第六名', '7': '第七名', '8': '第八名', '9': '第九名', '10': '第十名'
         }
         for digit, position in digit_mapping.items():
             if digit in category_clean:
-                st.write(f"✅ 数字映射: {category_clean} -> {position}")
+                st.write(f"✅ 数字映射成功: {category_clean} -> {position}")
                 return position
         
-        st.warning(f"⚠️ 无法从玩法分类中提取位置: {category_str} -> {category_clean}")
+        # 方法6：汉字数字映射
+        chinese_digit_mapping = {
+            '一': '冠军', '二': '亚军', '三': '季军', '四': '第四名', '五': '第五名',
+            '六': '第六名', '七': '第七名', '八': '第八名', '九': '第九名', '十': '第十名'
+        }
+        for ch_digit, position in chinese_digit_mapping.items():
+            if ch_digit in category_clean:
+                st.write(f"✅ 汉字数字映射成功: {category_clean} -> {position}")
+                return position
+        
+        st.warning(f"❌ 无法从玩法分类中提取位置: {category_str} -> {category_clean}")
         return '未知位置'
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
