@@ -1761,16 +1761,21 @@ class AnalysisEngine:
         self.normalizer = PlayCategoryNormalizer()
         self.seen_records = set()  # 用于记录已检测的记录
 
-    def debug_analysis_process(self, account, lottery, period, group):
-        """调试分析过程"""
-        print(f"\n=== 开始调试分析过程 ===")
+    def debug_detailed_analysis(self, account, lottery, period, group):
+        """详细调试分析过程"""
+        print(f"\n=== 详细调试分析过程 ===")
         print(f"账户: {account}, 彩种: {lottery}, 期号: {period}")
+        
+        # 显示所有记录
+        print("所有记录:")
+        for _, row in group.iterrows():
+            print(f"  玩法分类: '{row['玩法分类']}', 内容: '{row['内容']}'")
         
         # 调试龙虎分析
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
         
-        print(f"龙虎投注记录数量: {len(dragon_tiger_group)}")
+        print(f"龙虎投注记录:")
         for _, row in dragon_tiger_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
@@ -1782,35 +1787,15 @@ class AnalysisEngine:
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
         
-        print(f"正码投注记录数量: {len(zhengma_group)}")
-        position_waves = {
-            '正码一': set(),
-            '正码二': set(),
-            '正码三': set(),
-            '正码四': set(),
-            '正码五': set(),
-            '正码六': set()
-        }
-        
+        print(f"正码投注记录:")
         for _, row in zhengma_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             position = self._normalize_zhengma_position_complete(category)
             waves = self._extract_wave_strict(content)
             print(f"  分类: '{category}', 内容: '{content}', 位置: '{position}', 波色: {waves}")
-            
-            if position in position_waves:
-                position_waves[position].update(waves)
         
-        # 检查波色全包情况
-        traditional_waves = {'红波', '蓝波', '绿波'}
-        for position, waves in position_waves.items():
-            if traditional_waves.issubset(waves):
-                print(f"  ⚠️ 检测到 {position} 波色全包: {waves}")
-            else:
-                print(f"  {position} 波色: {waves}")
-        
-        print("=== 结束调试分析过程 ===\n")
+        print("=== 结束详细调试分析过程 ===\n")
 
     def _normalize_zhengma_position_complete(self, position):
         """完全重写的正码位置标准化函数"""
@@ -1978,7 +1963,7 @@ class AnalysisEngine:
         return '冠军'
 
     def _analyze_lhc_zhengma_wave_detailed_fixed(self, account, lottery, period, group, results):
-        """修复版：分析六合彩正码中的波色投注"""
+        """修复版：分析六合彩正码中的波色投注 - 确保位置独立分析"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
         zhengma_group = group[group['玩法分类'].isin(zhengma_categories)]
@@ -2006,6 +1991,9 @@ class AnalysisEngine:
             # 提取波色
             waves = self._extract_wave_strict(content)
             
+            # 调试信息
+            print(f"正码波色分析 - 分类: '{category}', 内容: '{content}', 位置: '{position}', 波色: {waves}")
+            
             # 只将波色添加到对应的位置
             if position in position_waves:
                 position_waves[position].update(waves)
@@ -2027,9 +2015,10 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, f'{position}波色全包')
                 }
                 self._add_unique_result(results, f'{position}波色全包', record)
+                print(f"⚠️ 检测到 {position} 波色全包: {waves}")
 
     def _analyze_pk10_dragon_tiger_detailed_fixed(self, account, lottery, period, group, results):
-        """修复版：PK10龙虎详细检测"""
+        """修复版：PK10龙虎详细检测 - 确保位置独立分析"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
@@ -2045,9 +2034,14 @@ class AnalysisEngine:
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            
+            # 调试信息
+            print(f"龙虎分析 - 分类: '{category}', 内容: '{content}', 位置: '{position}', 龙虎投注: {dragon_tiger}")
+            
+            # 只将龙虎投注添加到对应的位置
             position_bets[position].update(dragon_tiger)
         
-        # 检查矛盾
+        # 检查每个位置的矛盾
         for position, bets in position_bets.items():
             if '龙' in bets and '虎' in bets:
                 record = {
@@ -2061,6 +2055,7 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+                print(f"⚠️ 检测到 {position} 龙虎矛盾: {bets}")
     
     def parse_play_content_enhanced(self, content, current_category, lottery_type):
         """增强版内容解析 - 返回实际玩法分类和投注内容"""
@@ -5498,20 +5493,20 @@ def main():
                 
                 if df_clean is not None and len(df_clean) > 0:
                     # 显示基本统计信息
-                    col1, col2, col3, col4 = st.columns(4)  # 确保这里定义了 col4
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("总记录数", len(df_clean))
                     with col2:
                         st.metric("唯一会员数", df_clean['会员账号'].nunique())
                     with col3:
                         st.metric("彩种数量", df_clean['彩种'].nunique())
-                    with col4:  # 确保这里使用了 col4
+                    with col4:
                         st.metric("可疑记录数", "待分析")
                     
                     # 统一玩法分类
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
-                    # 分析投注模式 - 添加调试
+                    # 分析投注模式 - 添加详细调试
                     all_results = {}
                     lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
                     
@@ -5523,7 +5518,7 @@ def main():
                         status_text.text(f"正在分析 {lottery_type}...")
                         
                         if lottery_type == 'PK拾赛车':
-                            # 添加调试
+                            # 添加详细调试
                             df_target = df_normalized[df_normalized['彩种'].apply(analyzer.identify_lottery_type) == 'PK10']
                             grouped = df_target.groupby(['会员账号', '彩种', '期号'])
                             
@@ -5531,14 +5526,14 @@ def main():
                             debug_count = 0
                             for (account, lottery, period), group in grouped:
                                 if debug_count < 3:  # 只调试前3个分组
-                                    analyzer.debug_analysis_process(account, lottery, period, group)
+                                    analyzer.debug_detailed_analysis(account, lottery, period, group)
                                     debug_count += 1
                                 else:
                                     break
                             
                             all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
                         elif lottery_type == '六合彩':
-                            # 添加调试
+                            # 添加详细调试
                             df_target = df_normalized[df_normalized['彩种'].apply(analyzer.identify_lottery_type) == 'LHC']
                             grouped = df_target.groupby(['会员账号', '彩种', '期号'])
                             
@@ -5546,7 +5541,7 @@ def main():
                             debug_count = 0
                             for (account, lottery, period), group in grouped:
                                 if debug_count < 3:  # 只调试前3个分组
-                                    analyzer.debug_analysis_process(account, lottery, period, group)
+                                    analyzer.debug_detailed_analysis(account, lottery, period, group)
                                     debug_count += 1
                                 else:
                                     break
@@ -5571,6 +5566,7 @@ def main():
                         type_count = sum(len(records) for records in results.values())
                         total_findings += type_count
                     
+                    # 更新可疑记录数
                     with col4:
                         st.metric("可疑记录数", total_findings)
                     
