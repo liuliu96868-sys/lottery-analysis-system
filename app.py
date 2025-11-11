@@ -5352,14 +5352,6 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
-
-                    if enable_space_normalization:
-                        st.info("🔧 已启用空格标准化处理")
-                        # 对关键列进行额外的空格处理
-                        for col in ['玩法', '内容', '玩法分类']:
-                            if col in df_clean.columns:
-                                df_clean[col] = df_clean[col].apply(normalize_spaces)
-                    
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("总记录数", len(df_clean))
@@ -5371,62 +5363,55 @@ def main():
                     # 统一玩法分类
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
-                    # 分析投注模式
-                    # 使用进度条
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    all_results = {}
-                    # 明确定义 lottery_types 变量 - 添加3D系列
-                    lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
-                    
-                    for i, lottery_type in enumerate(lottery_types):
-                        status_text.text(f"正在分析 {lottery_type}...")
+                    # ==================== 添加 try-except 代码块开始 ====================
+                    try:
+                        # 分析投注模式
+                        all_results = analyzer.analyze_all_patterns(df_normalized)
                         
-                        if lottery_type == 'PK拾赛车':
-                            all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
-                        elif lottery_type == '时时彩':
-                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
-                        elif lottery_type == '六合彩':
-                            all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
-                        elif lottery_type == '快三':
-                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
-                        elif lottery_type == '三色彩':
-                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
-                        # 添加3D系列分析调用
-                        elif lottery_type == '3D系列':
-                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
+                        # 统计结果
+                        total_findings = 0
+                        for lottery_type, results in all_results.items():
+                            type_count = sum(len(records) for records in results.values())
+                            total_findings += type_count
                         
-                        progress_bar.progress((i + 1) / len(lottery_types))
-                    
-                    status_text.text("分析完成！")
-                    
-                    # 统计结果
-                    total_findings = 0
-                    for lottery_type, results in all_results.items():
-                        type_count = sum(len(records) for records in results.values())
-                        total_findings += type_count
-                    
-                    with col4:
-                        st.metric("可疑记录数", total_findings)
-                    
-                    with st.expander("📊 数据预览", expanded=False):
-                        st.dataframe(df_clean.head(10))
-                    
-                    if total_findings == 0:
-                        st.success("🎉 未发现可疑投注行为")
-                    else:
-                        # 处理并显示结果
-                        account_results = result_processor.organize_results_by_account(all_results)
+                        with col4:
+                            st.metric("可疑记录数", total_findings)
                         
-                        summary_stats = result_processor.create_summary_stats(account_results, df_clean)
-                        result_processor.display_summary(summary_stats)
+                        with st.expander("📊 数据预览", expanded=False):
+                            st.dataframe(df_clean.head(10))
                         
-                        result_processor.display_account_results(account_results)
-                        
-                        # 导出结果
-                        st.subheader("📥 结果导出")
-                        exporter.export_to_excel(account_results, "智能彩票分析")
+                        if total_findings == 0:
+                            st.success("🎉 未发现可疑投注行为")
+                        else:
+                            # 处理并显示结果
+                            account_results = result_processor.organize_results_by_account(all_results)
+                            
+                            summary_stats = result_processor.create_summary_stats(account_results, df_clean)
+                            result_processor.display_summary(summary_stats)
+                            
+                            result_processor.display_account_results(account_results)
+                            
+                            # 导出结果
+                            st.subheader("📥 结果导出")
+                            exporter.export_to_excel(account_results, "智能彩票分析")
+                    
+                    except NameError as e:
+                        if "position_bets" in str(e):
+                            st.error("❌ 找到 position_bets 未定义错误！")
+                            st.error("请检查以下方法中是否正确定义了 position_bets：")
+                            st.error("1. _analyze_pk10_two_sides")
+                            st.error("2. _analyze_pk10_independent_plays") 
+                            st.error("3. _analyze_pk10_dragon_tiger_comprehensive")
+                            st.error("4. _analyze_lhc_zhengma_1_6")
+                        import traceback
+                        st.error(f"详细错误堆栈: {traceback.format_exc()}")
+                        return
+                    except Exception as e:
+                        st.error(f"❌ 分析过程中出现错误: {str(e)}")
+                        import traceback
+                        st.error(f"详细错误堆栈: {traceback.format_exc()}")
+                        return
+                    # ==================== 添加 try-except 代码块结束 ====================
                 
                 else:
                     st.error("❌ 数据清洗后无有效数据，请检查文件格式")
