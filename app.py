@@ -2112,17 +2112,20 @@ class AnalysisEngine:
         
         all_numbers_by_position = defaultdict(set)
         
-        # 修复这里的缩进：整个for循环应该缩进
         for _, row in number_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 新增：基于内容重新分类
-            actual_category = self.normalize_play_category_from_content(content, category, 'PK10')
+            # 修复：优先从extracted_position字段获取位置（如果存在）
+            if 'extracted_position' in row and pd.notna(row['extracted_position']):
+                inferred_position = row['extracted_position']
+            else:
+                # 如果extracted_position不存在，则从玩法分类中提取
+                inferred_position = self._extract_exact_pk10_position_from_category(category)
+                if inferred_position == '未知位置':
+                    # 最后从内容中提取
+                    play_method, inferred_position, clean_content = self.enhanced_parser.extract_play_method_and_position(content, 'PK10')
             
-            # 增强位置判断：从玩法分类推断位置
-            inferred_position = self._infer_position_from_category(actual_category)  # 使用 actual_category
-        
             # 使用统一解析器
             bets_by_position = ContentParser.parse_pk10_content(content)
             
@@ -2136,14 +2139,14 @@ class AnalysisEngine:
                     numbers = self.data_analyzer.extract_numbers_from_content(bet, 1, 10, is_pk10=True)
                     all_numbers_by_position[position].update(numbers)
         
-        # 检查每个位置的超码
+        # 检查每个位置的超码（保持原有逻辑）
         for position, numbers in all_numbers_by_position.items():
             if len(numbers) >= THRESHOLD_CONFIG['PK10']['multi_number']:
                 record = {
                     '会员账号': account,
                     '彩种': lottery,
                     '期号': period,
-                    '玩法分类': f'{position}多码',  # 改为具体位置
+                    '玩法分类': f'{position}多码',
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}: {', '.join([f'{num:02d}' for num in sorted(numbers)])}",
@@ -2268,8 +2271,9 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测"""
-        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎']
+        """PK10龙虎详细检测 - 修复版本"""
+        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
+                                  '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
         
@@ -2279,22 +2283,18 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 确定位置
-            if '冠军' in category:
-                position = '冠军'
-            elif '亚军' in category:
-                position = '亚军'
-            elif '季军' in category:
-                position = '季军'
-            else:
-                # 从内容推断位置
-                position = self.data_analyzer._infer_pk10_position_from_content(content)
+            # 修复：精确从玩法分类中提取位置
+            position = self._extract_exact_pk10_position_from_category(category)
+            if position == '未知位置':
+                # 如果从分类中无法提取，使用增强解析器
+                play_method, position, clean_content = self.enhanced_parser.extract_play_method_and_position(content, 'PK10')
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            position_bets[position].update(dragon_tiger)
+            if dragon_tiger:
+                position_bets[position].update(dragon_tiger)
         
-        # 检查矛盾
+        # 检查矛盾（保持原有逻辑）
         for position, bets in position_bets.items():
             if '龙' in bets and '虎' in bets:
                 record = {
@@ -4468,6 +4468,31 @@ class AnalysisEngine:
                     break
         
         return waves
+
+    def _extract_exact_pk10_position_from_category(self, category):
+        """从PK10玩法分类中精确提取位置"""
+        category_str = str(category).strip()
+        
+        # 精确的位置映射，包含空格变体
+        position_mapping = {
+            '冠军': ['冠军', '龙虎_冠军', '龙虎_冠 军', '冠 军', '前一'],
+            '亚军': ['亚军', '龙虎_亚军', '龙虎_亚 军', '亚 军'],
+            '季军': ['季军', '龙虎_季军', '龙虎_季 军', '季 军', '第三名'],
+            '第四名': ['第四名', '龙虎_第四名', '第4名'],
+            '第五名': ['第五名', '龙虎_第五名', '第5名'],
+            '第六名': ['第六名', '龙虎_第六名', '第6名'],
+            '第七名': ['第七名', '龙虎_第七名', '第7名'],
+            '第八名': ['第八名', '龙虎_第八名', '第8名'],
+            '第九名': ['第九名', '龙虎_第九名', '第9名'],
+            '第十名': ['第十名', '龙虎_第十名', '第10名']
+        }
+        
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in category_str:
+                    return position
+        
+        return '未知位置'
 
     def _analyze_detailed_category_patterns(self, account, lottery, period, group, results, 
                                           category_config, extract_method, count_field, 
