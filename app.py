@@ -2067,7 +2067,7 @@ class AnalysisEngine:
             self._analyze_pk10_two_sides(account, lottery, period, group, results)
             self._analyze_pk10_gyh(account, lottery, period, group, results)
             # === 删除这行：self._analyze_pk10_number_plays(account, lottery, period, group, results) ===
-            self._analyze_pk10_independent_plays(account, lottery, period, group, results)
+            # === 删除这行：self._analyze_pk10_independent_plays(account, lottery, period, group, results)
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
             self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
             self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
@@ -2255,66 +2255,6 @@ class AnalysisEngine:
                     return position
         
         return None
-    
-    def _analyze_pk10_independent_plays(self, account, lottery, period, group, results):
-        """分析PK10独立玩法（大小单双龙虎）"""
-        independent_categories = [
-            '大小_冠军', '大小_亚军', '大小_季军',
-            '单双_冠军', '单双_亚军', '单双_季军',
-            '龙虎_冠军', '龙虎_亚军', '龙虎_季军'
-        ]
-        
-        independent_group = group[group['玩法分类'].isin(independent_categories)]
-        
-        position_bets = defaultdict(set)
-        
-        for _, row in independent_group.iterrows():  # 这个for循环需要正确缩进
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 确定位置（前一就是冠军）
-            if '冠军' in category or '前一' in category:
-                position = '冠军'
-            elif '亚军' in category:
-                position = '亚军'
-            elif '季军' in category:
-                position = '季军'
-            else:
-                continue
-            
-            if '大小' in category:
-                bets = self.data_analyzer.extract_size_parity_from_content(content)
-            elif '单双' in category:
-                bets = self.data_analyzer.extract_size_parity_from_content(content)
-            elif '龙虎' in category:
-                bets = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            else:
-                bets = []
-            
-            position_bets[position].update(bets)
-        
-        for position, bets in position_bets.items():  # 这个for循环也需要正确缩进
-            conflicts = []
-            
-            if '大' in bets and '小' in bets:
-                conflicts.append('大小')
-            if '单' in bets and '双' in bets:
-                conflicts.append('单双')
-            if '龙' in bets and '虎' in bets:
-                conflicts.append('龙虎')
-            
-            if conflicts:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '独立玩法',
-                    '位置': position,
-                    '矛盾类型': '、'.join(conflicts),
-                    '投注内容': f"{position}-{','.join(sorted(bets))}",
-                    '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '独立玩法矛盾')
-                }
-                self._add_unique_result(results, '独立玩法矛盾', record)
     
     def _analyze_pk10_qianyi_plays(self, account, lottery, period, group, results):
         """分析PK10前一玩法"""
@@ -4637,7 +4577,6 @@ class ResultProcessor:
                 '冠亚和多码': '冠亚和多码',
                 '冠亚和矛盾': '冠亚和矛盾',
                 '两面矛盾': '两面矛盾',
-                '独立玩法矛盾': '独立玩法矛盾',
                 '前一多码': '前一多码',
                 '龙虎矛盾': '龙虎矛盾',
                 '十个位置全投': '十个位置全投',
