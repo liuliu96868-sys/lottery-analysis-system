@@ -811,58 +811,63 @@ class EnhancedContentParser:
     
     @staticmethod
     def _parse_pk10_content(content):
-        """解析PK10内容 - 增强版本"""
+        """解析PK10内容 - 专门修复冠军亚军季军"""
         # 处理特殊空格字符
         import re
-        content_processed = re.sub(r'\s+', ' ', str(content).strip())
+        content_processed = re.sub(r'[ \t\u00A0\u3000\u2000-\u200B]+', ' ', str(content).strip())
         
-        # PK10位置识别 - 增强版本
+        # PK10位置识别 - 专门处理冠军亚军季军
         pk10_positions = {
-            '冠军': ['冠军', '第1名', '第一名', '前一', '冠 军', '冠 军', '冠　军'],
-            '亚军': ['亚军', '第2名', '第二名', '亚 军', '亚 军', '亚　军'],
-            '季军': ['季军', '第3名', '第三名', '季 军', '季 军', '季　军'],
-            '第四名': ['第四名', '第4名', '第 四 名'],
-            '第五名': ['第五名', '第5名', '第 五 名'],
-            '第六名': ['第六名', '第6名', '第 六 名'],
-            '第七名': ['第七名', '第7名', '第 七 名'],
-            '第八名': ['第八名', '第8名', '第 八 名'],
-            '第九名': ['第九名', '第9名', '第 九 名'],
-            '第十名': ['第十名', '第10名', '第 十 名']
-        }
-        
-        # PK10玩法识别
-        play_methods = {
-            '龙虎': ['龙', '虎'],
-            '大小': ['大', '小'],
-            '单双': ['单', '双'],
-            '号码': [str(i) for i in range(1, 11)] + [f'{i:02d}' for i in range(1, 11)]
+            '冠军': ['冠军', '第1名', '第一名', '前一', '冠 军'],
+            '亚军': ['亚军', '第2名', '第二名', '亚 军'],
+            '季军': ['季军', '第3名', '第三名', '季 军'],
+            '第四名': ['第四名', '第4名'],
+            '第五名': ['第五名', '第5名'],
+            '第六名': ['第六名', '第6名'],
+            '第七名': ['第七名', '第7名'],
+            '第八名': ['第八名', '第8名'],
+            '第九名': ['第九名', '第9名'],
+            '第十名': ['第十名', '第10名']
         }
         
         position = '未知位置'
         play_method = '未知玩法'
         clean_content = content_processed
         
-        # 识别位置
+        # 专门处理冠军、亚军、季军的识别
+        # 首先检查是否包含位置关键词
         for pos_name, keywords in pk10_positions.items():
             for keyword in keywords:
+                # 使用处理后的内容进行匹配
                 if keyword in content_processed:
                     position = pos_name
+                    # 从内容中移除位置信息，得到纯投注内容
                     clean_content = clean_content.replace(keyword, '').strip()
                     break
             if position != '未知位置':
                 break
         
-        # 识别玩法
+        # 如果仍然没有识别到位置，尝试更宽松的匹配
+        if position == '未知位置':
+            if any(word in content_processed for word in ['冠军', '冠 军', '冠　军']):
+                position = '冠军'
+            elif any(word in content_processed for word in ['亚军', '亚 军', '亚　军']):
+                position = '亚军' 
+            elif any(word in content_processed for word in ['季军', '季 军', '季　军']):
+                position = '季军'
+        
+        # 识别玩法类型
+        play_methods = {
+            '龙虎': ['龙', '虎'],
+            '大小': ['大', '小'],
+            '单双': ['单', '双']
+        }
+        
         for method_name, keywords in play_methods.items():
             for keyword in keywords:
-                if keyword in clean_content and len(keyword) > 0:
-                    if method_name == '号码':
-                        if re.search(r'\b' + re.escape(keyword) + r'\b', clean_content):
-                            play_method = method_name
-                            break
-                    else:
-                        play_method = method_name
-                        break
+                if keyword in clean_content:
+                    play_method = method_name
+                    break
             if play_method != '未知玩法':
                 break
         
@@ -4478,41 +4483,68 @@ class AnalysisEngine:
         return waves
 
     def _extract_exact_pk10_position_from_category(self, category):
-        """从PK10玩法分类中精确提取位置 - 增强版本"""
+        """从PK10玩法分类中精确提取位置 - 专门修复冠军亚军季军"""
         category_str = str(category).strip()
         
-        # 处理特殊空格字符：将各种空格统一为普通空格
-        import re
-        # 替换所有类型的空格（包括不间断空格\u00A0、全角空格等）为普通空格
-        category_str = re.sub(r'\s+', ' ', category_str)
+        # 调试输出，查看原始分类字符串
+        logger.info(f"原始分类字符串: {repr(category_str)}")
         
-        # 精确的位置映射，包含各种空格变体
+        # 专门处理冠军、亚军、季军的特殊空格问题
+        # 将各种空格（包括全角空格、不间断空格等）统一替换为普通空格
+        import re
+        category_normalized = re.sub(r'[ \t\u00A0\u3000\u2000-\u200B]+', ' ', category_str)
+        logger.info(f"标准化后分类: {repr(category_normalized)}")
+        
+        # 专门针对冠军、亚军、季军的精确匹配
+        # 首先检查是否包含"龙虎_"前缀
+        if '龙虎_' in category_normalized:
+            # 提取"龙虎_"后面的部分
+            position_part = category_normalized.split('龙虎_')[-1].strip()
+            logger.info(f"位置部分: {repr(position_part)}")
+            
+            # 冠军的各种变体
+            if any(keyword in position_part for keyword in ['冠军', '冠 军', '冠　军', '冠军']):
+                return '冠军'
+            # 亚军的各种变体  
+            elif any(keyword in position_part for keyword in ['亚军', '亚 军', '亚　军', '亚军']):
+                return '亚军'
+            # 季军的各种变体
+            elif any(keyword in position_part for keyword in ['季军', '季 军', '季　军', '季军']):
+                return '季军'
+            # 其他位置
+            elif '第四名' in position_part:
+                return '第四名'
+            elif '第五名' in position_part:
+                return '第五名'
+            elif '第六名' in position_part:
+                return '第六名'
+            elif '第七名' in position_part:
+                return '第七名'
+            elif '第八名' in position_part:
+                return '第八名'
+            elif '第九名' in position_part:
+                return '第九名'
+            elif '第十名' in position_part:
+                return '第十名'
+        
+        # 如果上述匹配失败，使用原有的精确位置映射
         position_mapping = {
-            '冠军': ['冠军', '龙虎_冠军', '龙虎_冠 军', '冠 军', '前一', '龙虎_冠 军', '龙虎_冠　军'],
-            '亚军': ['亚军', '龙虎_亚军', '龙虎_亚 军', '亚 军', '龙虎_亚 军', '龙虎_亚　军'],
-            '季军': ['季军', '龙虎_季军', '龙虎_季 军', '季 军', '第三名', '龙虎_季 军', '龙虎_季　军'],
-            '第四名': ['第四名', '龙虎_第四名', '第4名', '龙虎_第 四 名'],
-            '第五名': ['第五名', '龙虎_第五名', '第5名', '龙虎_第 五 名'],
-            '第六名': ['第六名', '龙虎_第六名', '第6名', '龙虎_第 六 名'],
-            '第七名': ['第七名', '龙虎_第七名', '第7名', '龙虎_第 七 名'],
-            '第八名': ['第八名', '龙虎_第八名', '第8名', '龙虎_第 八 名'],
-            '第九名': ['第九名', '龙虎_第九名', '第9名', '龙虎_第 九 名'],
-            '第十名': ['第十名', '龙虎_第十名', '第10名', '龙虎_第 十 名']
+            '冠军': ['冠军', '龙虎_冠军', '龙虎_冠 军', '冠 军', '前一'],
+            '亚军': ['亚军', '龙虎_亚军', '龙虎_亚 军', '亚 军'],
+            '季军': ['季军', '龙虎_季军', '龙虎_季 军', '季 军', '第三名'],
+            '第四名': ['第四名', '龙虎_第四名', '第4名'],
+            '第五名': ['第五名', '龙虎_第五名', '第5名'],
+            '第六名': ['第六名', '龙虎_第六名', '第6名'],
+            '第七名': ['第七名', '龙虎_第七名', '第7名'],
+            '第八名': ['第八名', '龙虎_第八名', '第8名'],
+            '第九名': ['第九名', '龙虎_第九名', '第9名'],
+            '第十名': ['第十名', '龙虎_第十名', '第10名']
         }
         
-        # 首先尝试精确匹配
         for position, keywords in position_mapping.items():
             for keyword in keywords:
-                # 使用处理后的分类字符串进行匹配
-                if keyword in category_str:
+                if keyword in category_normalized:
                     return position
-        
-        # 如果精确匹配失败，尝试更宽松的匹配
-        # 检查是否包含位置关键词（如"冠军"、"亚军"等）
-        position_keywords = ['冠军', '亚军', '季军', '第四名', '第五名', '第六名', '第七名', '第八名', '第九名', '第十名']
-        for keyword in position_keywords:
-            if keyword in category_str:
-                return keyword
         
         return '未知位置'
 
