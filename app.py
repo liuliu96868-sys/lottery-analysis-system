@@ -5595,8 +5595,6 @@ def main():
         value=True,
         help="显示详细的处理过程和调试信息"
     )
-
-    analyzer.enable_detailed_debug = enable_detailed_debug
     
     st.sidebar.subheader("检测阈值配置")
     
