@@ -741,7 +741,7 @@ class ContentParser:
 # ==================== 增强内容解析器 ====================
 class EnhancedContentParser:
     """增强版内容解析器，支持从内容中识别玩法和位置"""
-
+    
     @staticmethod
     def extract_play_method_and_position(content, lottery_type):
         """
