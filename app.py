@@ -1569,19 +1569,16 @@ class PlayCategoryNormalizer:
             # 龙虎独立玩法 - 新增精确映射（关键修复）
             '龙虎_冠军': '龙虎_冠军',
             '龙虎_冠 军': '龙虎_冠军',
-            '龙虎_冠 军': '龙虎_冠军',  # 窄空格
-            '龙虎_冠　军': '龙虎_冠军',  # 全角空格
-            '龙虎_冠  军': '龙虎_冠军',  # 多个空格
-            '龙虎_亚军': '龙虎_亚军',
-            '龙虎_亚 军': '龙虎_亚军', 
-            '龙虎_亚 军': '龙虎_亚军',  # 窄空格
-            '龙虎_亚　军': '龙虎_亚军',  # 全角空格
-            '龙虎_亚  军': '龙虎_亚军',  # 多个空格
+            '龙虎_冠　军': '龙虎_冠军',
+            '龙虎_冠  军': '龙虎_冠军',
+            '龙虎_亚军': '龙虎_亚军', 
+            '龙虎_亚 军': '龙虎_亚军',
+            '龙虎_亚　军': '龙虎_亚军',
+            '龙虎_亚  军': '龙虎_亚军',
             '龙虎_季军': '龙虎_季军',
             '龙虎_季 军': '龙虎_季军',
-            '龙虎_季 军': '龙虎_季军',  # 窄空格
-            '龙虎_季　军': '龙虎_季军',  # 全角空格
-            '龙虎_季  军': '龙虎_季军',  # 多个空格
+            '龙虎_季　军': '龙虎_季军',
+            '龙虎_季  军': '龙虎_季军',
             '龙虎_第四名': '龙虎_第四名',
             '龙虎_第五名': '龙虎_第五名',
             '龙虎_第六名': '龙虎_第六名',
@@ -2288,7 +2285,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测 - 修复版本"""
+        """PK10龙虎详细检测 - 彻底修复版本"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
                                   '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
         
@@ -2300,18 +2297,15 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 修复：精确从玩法分类中提取位置
-            position = self._extract_exact_pk10_position_from_category(category)
-            if position == '未知位置':
-                # 如果从分类中无法提取，使用增强解析器
-                play_method, position, clean_content = self.enhanced_parser.extract_play_method_and_position(content, 'PK10')
+            # 彻底修复：直接从分类名称中提取位置
+            position = self._extract_position_from_dragon_tiger_category(category)
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
             if dragon_tiger:
                 position_bets[position].update(dragon_tiger)
         
-        # 检查矛盾（保持原有逻辑）
+        # 检查矛盾
         for position, bets in position_bets.items():
             if '龙' in bets and '虎' in bets:
                 record = {
@@ -2325,6 +2319,78 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+    
+    def _extract_position_from_dragon_tiger_category(self, category):
+        """从龙虎玩法分类中直接提取位置 - 专门修复版本"""
+        category_str = str(category).strip()
+        
+        # 直接硬编码映射，避免复杂的字符串处理
+        position_mapping = {
+            # 冠军的各种写法
+            '龙虎_冠军': '冠军',
+            '龙虎_冠 军': '冠军', 
+            '龙虎_冠　军': '冠军',
+            '龙虎_冠  军': '冠军',
+            '冠军': '冠军',
+            '龙虎_前一': '冠军',
+            
+            # 亚军的各种写法
+            '龙虎_亚军': '亚军',
+            '龙虎_亚 军': '亚军',
+            '龙虎_亚　军': '亚军',
+            '龙虎_亚  军': '亚军',
+            '亚军': '亚军',
+            
+            # 季军的各种写法
+            '龙虎_季军': '季军',
+            '龙虎_季 军': '季军',
+            '龙虎_季　军': '季军',
+            '龙虎_季  军': '季军',
+            '季军': '季军',
+            '龙虎_第三名': '季军',
+            
+            # 其他位置
+            '龙虎_第四名': '第四名',
+            '龙虎_第五名': '第五名',
+            '龙虎_第六名': '第六名',
+            '龙虎_第七名': '第七名',
+            '龙虎_第八名': '第八名',
+            '龙虎_第九名': '第九名',
+            '龙虎_第十名': '第十名'
+        }
+        
+        # 直接查找
+        if category_str in position_mapping:
+            return position_mapping[category_str]
+        
+        # 模糊匹配
+        for key, value in position_mapping.items():
+            if key in category_str:
+                return value
+        
+        # 如果还是无法识别，使用简单的关键词匹配
+        if '冠军' in category_str or '前一' in category_str:
+            return '冠军'
+        elif '亚军' in category_str:
+            return '亚军'
+        elif '季军' in category_str or '第三名' in category_str:
+            return '季军'
+        elif '第四名' in category_str:
+            return '第四名'
+        elif '第五名' in category_str:
+            return '第五名'
+        elif '第六名' in category_str:
+            return '第六名'
+        elif '第七名' in category_str:
+            return '第七名'
+        elif '第八名' in category_str:
+            return '第八名'
+        elif '第九名' in category_str:
+            return '第九名'
+        elif '第十名' in category_str:
+            return '第十名'
+        
+        return '未知位置'
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置全投情况"""
