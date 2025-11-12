@@ -810,6 +810,7 @@ class EnhancedContentParser:
         return play_method, position, clean_content
     
     @staticmethod
+    @staticmethod
     def _parse_pk10_content(content):
         """解析PK10内容 - 专门修复冠军亚军季军"""
         # 处理特殊空格字符
@@ -818,9 +819,9 @@ class EnhancedContentParser:
         
         # PK10位置识别 - 专门处理冠军亚军季军
         pk10_positions = {
-            '冠军': ['冠军', '第1名', '第一名', '前一', '冠 军'],
-            '亚军': ['亚军', '第2名', '第二名', '亚 军'],
-            '季军': ['季军', '第3名', '第三名', '季 军'],
+            '冠军': ['冠军', '第1名', '第一名', '前一', '冠 军', '冠　军'],
+            '亚军': ['亚军', '第2名', '第二名', '亚 军', '亚　军'],
+            '季军': ['季军', '第3名', '第三名', '季 军', '季　军'],
             '第四名': ['第四名', '第4名'],
             '第五名': ['第五名', '第5名'],
             '第六名': ['第六名', '第6名'],
@@ -849,11 +850,11 @@ class EnhancedContentParser:
         
         # 如果仍然没有识别到位置，尝试更宽松的匹配
         if position == '未知位置':
-            if any(word in content_processed for word in ['冠军', '冠 军', '冠　军']):
+            if any(word in content_processed for word in ['冠军', '冠 军', '冠　军', '冠  军']):
                 position = '冠军'
-            elif any(word in content_processed for word in ['亚军', '亚 军', '亚　军']):
+            elif any(word in content_processed for word in ['亚军', '亚 军', '亚　军', '亚  军']):
                 position = '亚军' 
-            elif any(word in content_processed for word in ['季军', '季 军', '季　军']):
+            elif any(word in content_processed for word in ['季军', '季 军', '季　军', '季  军']):
                 position = '季军'
         
         # 识别玩法类型
@@ -1570,14 +1571,17 @@ class PlayCategoryNormalizer:
             '龙虎_冠 军': '龙虎_冠军',
             '龙虎_冠 军': '龙虎_冠军',  # 窄空格
             '龙虎_冠　军': '龙虎_冠军',  # 全角空格
+            '龙虎_冠  军': '龙虎_冠军',  # 多个空格
             '龙虎_亚军': '龙虎_亚军',
             '龙虎_亚 军': '龙虎_亚军', 
             '龙虎_亚 军': '龙虎_亚军',  # 窄空格
             '龙虎_亚　军': '龙虎_亚军',  # 全角空格
+            '龙虎_亚  军': '龙虎_亚军',  # 多个空格
             '龙虎_季军': '龙虎_季军',
             '龙虎_季 军': '龙虎_季军',
             '龙虎_季 军': '龙虎_季军',  # 窄空格
             '龙虎_季　军': '龙虎_季军',  # 全角空格
+            '龙虎_季  军': '龙虎_季军',  # 多个空格
             '龙虎_第四名': '龙虎_第四名',
             '龙虎_第五名': '龙虎_第五名',
             '龙虎_第六名': '龙虎_第六名',
@@ -4483,7 +4487,7 @@ class AnalysisEngine:
         return waves
 
     def _extract_exact_pk10_position_from_category(self, category):
-        """从PK10玩法分类中精确提取位置 - 专门修复冠军亚军季军"""
+        """从PK10玩法分类中精确提取位置 - 增强特殊空格处理"""
         category_str = str(category).strip()
         
         # 调试输出，查看原始分类字符串
@@ -4502,14 +4506,14 @@ class AnalysisEngine:
             position_part = category_normalized.split('龙虎_')[-1].strip()
             logger.info(f"位置部分: {repr(position_part)}")
             
-            # 冠军的各种变体
-            if any(keyword in position_part for keyword in ['冠军', '冠 军', '冠　军', '冠军']):
+            # 冠军的各种变体 - 增强匹配
+            if any(keyword in position_part for keyword in ['冠军', '冠 军', '冠　军', '冠军', '冠  军']):
                 return '冠军'
-            # 亚军的各种变体  
-            elif any(keyword in position_part for keyword in ['亚军', '亚 军', '亚　军', '亚军']):
+            # 亚军的各种变体 - 增强匹配
+            elif any(keyword in position_part for keyword in ['亚军', '亚 军', '亚　军', '亚军', '亚  军']):
                 return '亚军'
-            # 季军的各种变体
-            elif any(keyword in position_part for keyword in ['季军', '季 军', '季　军', '季军']):
+            # 季军的各种变体 - 增强匹配
+            elif any(keyword in position_part for keyword in ['季军', '季 军', '季　军', '季军', '季  军']):
                 return '季军'
             # 其他位置
             elif '第四名' in position_part:
@@ -4543,8 +4547,17 @@ class AnalysisEngine:
         
         for position, keywords in position_mapping.items():
             for keyword in keywords:
+                # 使用标准化后的分类进行匹配
                 if keyword in category_normalized:
                     return position
+        
+        # 如果还是无法识别，尝试更宽松的匹配
+        if any(word in category_normalized for word in ['冠军', '冠 军', '冠　军']):
+            return '冠军'
+        elif any(word in category_normalized for word in ['亚军', '亚 军', '亚　军']):
+            return '亚军'
+        elif any(word in category_normalized for word in ['季军', '季 军', '季　军']):
+            return '季军'
         
         return '未知位置'
 
