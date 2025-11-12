@@ -2226,18 +2226,19 @@ class AnalysisEngine:
         return None
     
     def _analyze_pk10_independent_plays(self, account, lottery, period, group, results):
-        """分析PK10独立玩法（大小单双龙虎）"""
+        """分析PK10独立玩法（大小单双）- 排除龙虎，避免重复检测"""
+        # 只保留大小和单双的独立玩法，排除龙虎（因为龙虎有专门的检测）
         independent_categories = [
             '大小_冠军', '大小_亚军', '大小_季军',
-            '单双_冠军', '单双_亚军', '单双_季军',
-            '龙虎_冠军', '龙虎_亚军', '龙虎_季军'
+            '单双_冠军', '单双_亚军', '单双_季军'
+            # 移除龙虎相关的独立玩法，因为龙虎有专门的检测
         ]
         
         independent_group = group[group['玩法分类'].isin(independent_categories)]
         
         position_bets = defaultdict(set)
         
-        for _, row in independent_group.iterrows():  # 这个for循环需要正确缩进
+        for _, row in independent_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
@@ -2251,26 +2252,21 @@ class AnalysisEngine:
             else:
                 continue
             
-            if '大小' in category:
-                bets = self.data_analyzer.extract_size_parity_from_content(content)
-            elif '单双' in category:
-                bets = self.data_analyzer.extract_size_parity_from_content(content)
-            elif '龙虎' in category:
-                bets = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            else:
-                bets = []
+            # 只提取大小单双，不提取龙虎
+            bets = self.data_analyzer.extract_size_parity_from_content(content)
+            # 过滤掉龙虎相关的投注
+            bets = [bet for bet in bets if bet not in ['龙', '虎']]
             
-            position_bets[position].update(bets)
+            if bets:  # 只有当有大小单双投注时才记录
+                position_bets[position].update(bets)
         
-        for position, bets in position_bets.items():  # 这个for循环也需要正确缩进
+        for position, bets in position_bets.items():
             conflicts = []
             
             if '大' in bets and '小' in bets:
                 conflicts.append('大小')
             if '单' in bets and '双' in bets:
                 conflicts.append('单双')
-            if '龙' in bets and '虎' in bets:
-                conflicts.append('龙虎')
             
             if conflicts:
                 record = {
@@ -2316,17 +2312,18 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测 - 带调试信息的修复版本"""
-        dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
-                                  '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
+        """PK10龙虎详细检测 - 捕获所有龙虎玩法"""
+        # 扩展龙虎玩法分类，包括所有可能的变体
+        dragon_tiger_categories = [
+            '龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
+            '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名',
+            '龙虎_冠 军', '龙虎_亚 军', '龙虎_季 军',  # 带空格的变体
+            '龙虎_冠　军', '龙虎_亚　军', '龙虎_季　军',  # 全角空格变体
+            '龙虎_冠  军', '龙虎_亚  军', '龙虎_季  军',  # 多个空格变体
+            '龙虎_前一'  # 前一就是冠军
+        ]
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
-        
-        # 添加调试信息
-        if not dragon_tiger_group.empty:
-            st.info(f"🔍 调试信息 - 发现龙虎玩法记录:")
-            for idx, row in dragon_tiger_group.iterrows():
-                st.write(f"  玩法分类: '{row['玩法分类']}', 内容: '{row['内容']}'")
         
         position_bets = defaultdict(set)
         
@@ -2339,9 +2336,6 @@ class AnalysisEngine:
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            
-            # 调试信息
-            st.info(f"🔍 位置提取结果: 分类='{category}' -> 位置='{position}', 投注内容='{dragon_tiger}'")
             
             if dragon_tiger:
                 position_bets[position].update(dragon_tiger)
@@ -2360,7 +2354,6 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
-                st.success(f"✅ 检测到龙虎矛盾: {position}位置同时投注龙和虎")
     
     def _extract_position_from_dragon_tiger_category(self, category):
         """从龙虎玩法分类中直接提取位置 - 增强特殊字符处理"""
@@ -4997,11 +4990,19 @@ class ResultProcessor:
         return account_results
     
     def _get_violation_details(self, record, result_type):
-        """获取违规详情"""
+        """获取违规详情 - 增强分类显示"""
         details = []
-
+        
         # 专门处理龙虎矛盾的显示
         if '龙虎矛盾' in result_type:
+            if record.get('位置'):
+                details.append(f"位置: {record['位置']}")
+            if record.get('矛盾类型'):
+                details.append(f"矛盾类型: {record['矛盾类型']}")
+            return ' | '.join(details) if details else '无详情'
+        
+        # 专门处理独立玩法矛盾的显示
+        if '独立玩法矛盾' in result_type:
             if record.get('位置'):
                 details.append(f"位置: {record['位置']}")
             if record.get('矛盾类型'):
@@ -5050,7 +5051,7 @@ class ResultProcessor:
         return ' | '.join(details) if details else '无详情'
     
     def optimize_display_records(self, records, max_records=5):
-        """优化显示记录"""
+        """优化显示记录 - 增强去重逻辑"""
         if not records:
             return []
         
@@ -5058,12 +5059,11 @@ class ResultProcessor:
         self.displayed_records_cache = set()
         
         def get_record_key(record):
-            """生成记录的唯一键"""
+            """生成记录的唯一键 - 增强版本"""
             return (
                 record.get('会员账号', ''),
                 record.get('期号', ''),
                 record.get('玩法分类', ''),
-                record.get('违规类型', ''),
                 record.get('位置', ''),
                 record.get('矛盾类型', '')
             )
@@ -5081,11 +5081,14 @@ class ResultProcessor:
         # 按排序权重排序
         unique_records.sort(key=lambda x: x.get('排序权重', 0), reverse=True)
         
-        # 对于和值矛盾，确保展示多样性
-        if unique_records and '和值矛盾' in unique_records[0].get('违规类型', ''):
-            return self._ensure_variety_in_display(unique_records, max_records)
-        else:
-            return unique_records[:max_records]
+        # 对于龙虎矛盾，确保优先显示
+        dragon_tiger_records = [r for r in unique_records if '龙虎矛盾' in r.get('违规类型', '')]
+        other_records = [r for r in unique_records if '龙虎矛盾' not in r.get('违规类型', '')]
+        
+        # 优先显示龙虎矛盾记录
+        result_records = dragon_tiger_records + other_records
+        
+        return result_records[:max_records]
     
     def _ensure_variety_in_display(self, records, max_records=5):
         """确保展示的记录包含不同类型的矛盾"""
