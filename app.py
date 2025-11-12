@@ -809,7 +809,7 @@ class EnhancedContentParser:
         
         return play_method, position, clean_content
     
-   @staticmethod
+    @staticmethod
     def _parse_pk10_content(content):
         """解析PK10内容 - 增强版本"""
         # 处理特殊空格字符
