@@ -738,6 +738,10 @@ class ContentParser:
             logger.warning(f"解析3D竖线格式失败: {content}, 错误: {str(e)}")
             return defaultdict(list)
 
+# ==================== 增强内容解析器 ====================
+class EnhancedContentParser:
+    """增强版内容解析器，支持从内容中识别玩法和位置"""
+
     @staticmethod
     def extract_play_method_and_position(content, lottery_type):
         """
