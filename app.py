@@ -2285,11 +2285,17 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测 - 彻底修复版本"""
+        """PK10龙虎详细检测 - 带调试信息的修复版本"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
                                   '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
         
         dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
+        
+        # 添加调试信息
+        if not dragon_tiger_group.empty:
+            st.info(f"🔍 调试信息 - 发现龙虎玩法记录:")
+            for idx, row in dragon_tiger_group.iterrows():
+                st.write(f"  玩法分类: '{row['玩法分类']}', 内容: '{row['内容']}'")
         
         position_bets = defaultdict(set)
         
@@ -2297,11 +2303,15 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 彻底修复：直接从分类名称中提取位置
+            # 使用新的直接提取方法
             position = self._extract_position_from_dragon_tiger_category(category)
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            
+            # 调试信息
+            st.info(f"🔍 位置提取结果: 分类='{category}' -> 位置='{position}', 投注内容='{dragon_tiger}'")
+            
             if dragon_tiger:
                 position_bets[position].update(dragon_tiger)
         
@@ -2319,6 +2329,7 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+                st.success(f"✅ 检测到龙虎矛盾: {position}位置同时投注龙和虎")
     
     def _extract_position_from_dragon_tiger_category(self, category):
         """从龙虎玩法分类中直接提取位置 - 专门修复版本"""
@@ -2391,6 +2402,55 @@ class AnalysisEngine:
             return '第十名'
         
         return '未知位置'
+
+    def test_dragon_tiger_position_extraction(self):
+        """测试龙虎位置提取功能 - 扩展版本"""
+        test_cases = [
+            # 基本格式
+            ('龙虎_冠军', '冠军'),
+            ('龙虎_亚军', '亚军'),
+            ('龙虎_季军', '季军'),
+            ('龙虎_第四名', '第四名'),
+            ('龙虎_第五名', '第五名'),
+            
+            # 各种空格变体
+            ('龙虎_冠 军', '冠军'),
+            ('龙虎_冠　军', '冠军'),
+            ('龙虎_冠  军', '冠军'),
+            ('龙虎_亚 军', '亚军'),
+            ('龙虎_亚　军', '亚军'),
+            ('龙虎_亚  军', '亚军'),
+            ('龙虎_季 军', '季军'),
+            ('龙虎_季　军', '季军'),
+            ('龙虎_季  军', '季军'),
+            
+            # 其他名称变体
+            ('龙虎_前一', '冠军'),
+            ('龙虎_第三名', '季军'),
+            
+            # 边界情况
+            ('冠军', '冠军'),  # 只有位置名称
+            ('龙虎_unknown', '未知位置'),  # 未知位置
+        ]
+        
+        st.info("🧪 测试龙虎位置提取功能:")
+        
+        results = []
+        for input_category, expected_position in test_cases:
+            actual_position = self._extract_position_from_dragon_tiger_category(input_category)
+            status = "✅" if actual_position == expected_position else "❌"
+            results.append({
+                '输入': input_category,
+                '期望': expected_position,
+                '实际': actual_position,
+                '状态': status
+            })
+            st.write(f"{status} 输入: '{input_category}' -> 期望: '{expected_position}', 实际: '{actual_position}'")
+        
+        # 显示汇总统计
+        passed = sum(1 for r in results if r['状态'] == '✅')
+        total = len(results)
+        st.success(f"测试结果: {passed}/{total} 通过 ({passed/total*100:.1f}%)")
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置全投情况"""
@@ -4891,6 +4951,14 @@ class ResultProcessor:
     def _get_violation_details(self, record, result_type):
         """获取违规详情"""
         details = []
+
+        # 专门处理龙虎矛盾的显示
+        if '龙虎矛盾' in result_type:
+            if record.get('位置'):
+                details.append(f"位置: {record['位置']}")
+            if record.get('矛盾类型'):
+                details.append(f"矛盾类型: {record['矛盾类型']}")
+            return ' | '.join(details) if details else '无详情'
         
         # 专门处理和值大小矛盾的显示
         if '和值大小矛盾' in result_type:
@@ -5445,6 +5513,10 @@ def main():
                 analyzer = AnalysisEngine()
                 result_processor = ResultProcessor()
                 exporter = Exporter()
+
+                # 首先运行测试函数来验证位置提取功能
+                with st.expander("🔧 功能测试", expanded=True):
+                    analyzer.test_dragon_tiger_position_extraction()
                 
                 # 数据清洗
                 df_clean = processor.clean_data(uploaded_file)
