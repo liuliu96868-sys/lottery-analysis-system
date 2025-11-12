@@ -339,6 +339,14 @@ class DataProcessor:
             df_clean = df_clean.dropna(subset=[col for col in self.required_columns if col in df_clean.columns])
             df_clean = df_clean.dropna(axis=1, how='all')
             
+            # === 添加特殊字符处理 ===
+            # 数据清理 - 添加特殊字符处理
+            for col in df_clean.columns:
+                if col in ['玩法', '内容']:  # 特别处理这些列
+                    df_clean[col] = df_clean[col].apply(
+                        lambda x: self.normalize_special_characters(str(x)) if pd.notna(x) else x
+                    )
+            
             # 数据类型转换 - 特别小心处理会员账号
             for col in self.required_columns:
                 if col in df_clean.columns:
@@ -384,8 +392,22 @@ class DataProcessor:
             st.error(f"❌ 数据清洗失败: {str(e)}")
             logger.error(f"数据清洗失败: {str(e)}")
             import traceback
-            logger.error(f"详细错误信息: {traceback.format_exc()}")  # 添加详细错误日志
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
             return None
+
+    def normalize_special_characters(self, text):
+        """规范化特殊字符，特别是空格字符"""
+        import re
+        if not text:
+            return text
+        
+        # 将所有类型的空白字符（包括不间断空格）替换为普通空格
+        text = re.sub(r'\s+', ' ', text)
+        
+        # 去除首尾空格
+        text = text.strip()
+        
+        return text
 
 # ==================== 内容解析器 ====================
 class ContentParser:
@@ -1665,6 +1687,12 @@ class PlayCategoryNormalizer:
         for key, value in self.category_mapping.items():
             if key in category_str:
                 return value
+
+        category_lower = category_normalized.lower()
+        
+        # 特别处理通用的"龙虎"分类
+        if category_normalized == '龙虎':
+            return '龙虎'  # 保持为通用龙虎
         
         category_lower = category_str.lower()
         
@@ -2332,12 +2360,20 @@ class AnalysisEngine:
                 st.success(f"✅ 检测到龙虎矛盾: {position}位置同时投注龙和虎")
     
     def _extract_position_from_dragon_tiger_category(self, category):
-        """从龙虎玩法分类中直接提取位置 - 专门修复版本"""
+        """从龙虎玩法分类中直接提取位置 - 增强特殊字符处理"""
         category_str = str(category).strip()
+        
+        # 首先规范化字符串：将所有类型的空格（包括不间断空格）替换为普通空格
+        import re
+        # 匹配所有空白字符，包括普通空格、不间断空格、全角空格等
+        category_normalized = re.sub(r'\s+', ' ', category_str)
+        
+        # 调试：显示原始和标准化后的字符串
+        st.info(f"🔍 字符串标准化: 原始='{category_str}' -> 标准化='{category_normalized}'")
         
         # 直接硬编码映射，避免复杂的字符串处理
         position_mapping = {
-            # 冠军的各种写法
+            # 冠军的各种写法 - 包含各种空格变体
             '龙虎_冠军': '冠军',
             '龙虎_冠 军': '冠军', 
             '龙虎_冠　军': '冠军',
@@ -2370,48 +2406,49 @@ class AnalysisEngine:
             '龙虎_第十名': '第十名'
         }
         
-        # 直接查找
-        if category_str in position_mapping:
-            return position_mapping[category_str]
+        # 直接查找（使用标准化后的字符串）
+        if category_normalized in position_mapping:
+            return position_mapping[category_normalized]
         
-        # 模糊匹配
+        # 模糊匹配（使用标准化后的字符串）
         for key, value in position_mapping.items():
-            if key in category_str:
+            if key in category_normalized:
                 return value
         
         # 如果还是无法识别，使用简单的关键词匹配
-        if '冠军' in category_str or '前一' in category_str:
+        if '冠军' in category_normalized or '前一' in category_normalized:
             return '冠军'
-        elif '亚军' in category_str:
+        elif '亚军' in category_normalized:
             return '亚军'
-        elif '季军' in category_str or '第三名' in category_str:
+        elif '季军' in category_normalized or '第三名' in category_normalized:
             return '季军'
-        elif '第四名' in category_str:
+        elif '第四名' in category_normalized:
             return '第四名'
-        elif '第五名' in category_str:
+        elif '第五名' in category_normalized:
             return '第五名'
-        elif '第六名' in category_str:
+        elif '第六名' in category_normalized:
             return '第六名'
-        elif '第七名' in category_str:
+        elif '第七名' in category_normalized:
             return '第七名'
-        elif '第八名' in category_str:
+        elif '第八名' in category_normalized:
             return '第八名'
-        elif '第九名' in category_str:
+        elif '第九名' in category_normalized:
             return '第九名'
-        elif '第十名' in category_str:
+        elif '第十名' in category_normalized:
             return '第十名'
         
+        # 如果仍然无法识别，显示原始字符串以便调试
+        st.warning(f"⚠️ 无法识别位置: 原始分类='{category_str}', 标准化后='{category_normalized}'")
         return '未知位置'
 
     def test_dragon_tiger_position_extraction(self):
-        """测试龙虎位置提取功能 - 扩展版本"""
+        """测试龙虎位置提取功能 - 包含特殊字符测试"""
+        # 模拟包含不间断空格的情况
         test_cases = [
             # 基本格式
             ('龙虎_冠军', '冠军'),
             ('龙虎_亚军', '亚军'),
             ('龙虎_季军', '季军'),
-            ('龙虎_第四名', '第四名'),
-            ('龙虎_第五名', '第五名'),
             
             # 各种空格变体
             ('龙虎_冠 军', '冠军'),
@@ -2424,28 +2461,36 @@ class AnalysisEngine:
             ('龙虎_季　军', '季军'),
             ('龙虎_季  军', '季军'),
             
+            # 模拟不间断空格（\u00A0）
+            ('龙虎_冠\u00A0军', '冠军'),
+            ('龙虎_亚\u00A0军', '亚军'),
+            ('龙虎_季\u00A0军', '季军'),
+            
             # 其他名称变体
             ('龙虎_前一', '冠军'),
             ('龙虎_第三名', '季军'),
             
-            # 边界情况
-            ('冠军', '冠军'),  # 只有位置名称
-            ('龙虎_unknown', '未知位置'),  # 未知位置
+            # 其他位置
+            ('龙虎_第四名', '第四名'),
+            ('龙虎_第五名', '第五名'),
+            
+            # 通用龙虎分类
+            ('龙虎', '通用龙虎'),
         ]
         
-        st.info("🧪 测试龙虎位置提取功能:")
+        st.info("🧪 测试龙虎位置提取功能（包含特殊字符）:")
         
         results = []
         for input_category, expected_position in test_cases:
             actual_position = self._extract_position_from_dragon_tiger_category(input_category)
             status = "✅" if actual_position == expected_position else "❌"
             results.append({
-                '输入': input_category,
+                '输入': repr(input_category),  # 使用repr显示原始字符串
                 '期望': expected_position,
                 '实际': actual_position,
                 '状态': status
             })
-            st.write(f"{status} 输入: '{input_category}' -> 期望: '{expected_position}', 实际: '{actual_position}'")
+            st.write(f"{status} 输入: {repr(input_category)} -> 期望: '{expected_position}', 实际: '{actual_position}'")
         
         # 显示汇总统计
         passed = sum(1 for r in results if r['状态'] == '✅')
