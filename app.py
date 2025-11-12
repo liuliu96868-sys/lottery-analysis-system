@@ -1676,25 +1676,28 @@ class PlayCategoryNormalizer:
         return mapping
     
     def normalize_category(self, category):
-        """统一玩法分类名称"""
+        """统一玩法分类名称 - 修复版本"""
         category_str = str(category).strip()
         
-        # 直接映射
-        if category_str in self.category_mapping:
-            return self.category_mapping[category_str]
+        # 首先规范化特殊字符
+        import re
+        category_normalized = re.sub(r'\s+', ' ', category_str)
         
-        # 关键词匹配
+        # 直接映射（使用标准化后的字符串）
+        if category_normalized in self.category_mapping:
+            return self.category_mapping[category_normalized]
+        
+        # 关键词匹配（使用标准化后的字符串）
         for key, value in self.category_mapping.items():
-            if key in category_str:
+            if key in category_normalized:
                 return value
-
-        category_lower = category_normalized.lower()
         
         # 特别处理通用的"龙虎"分类
         if category_normalized == '龙虎':
             return '龙虎'  # 保持为通用龙虎
         
-        category_lower = category_str.lower()
+        # 使用标准化后的字符串生成小写版本
+        category_lower = category_normalized.lower()
         
         # PK10/赛车智能匹配 - 补充更多变体
         if any(word in category_lower for word in ['定位胆_第1~5名', '定位胆1~5', '定位胆1-5']):
@@ -1780,7 +1783,7 @@ class PlayCategoryNormalizer:
         elif any(word in category_lower for word in ['三不同号']):
             return '三不同号'
         
-        return category_str
+        return category_normalized  # 返回标准化后的字符串
 
 # ==================== 分析引擎 ====================
 class AnalysisEngine:
