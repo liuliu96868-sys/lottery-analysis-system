@@ -2284,7 +2284,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '超码', record)
     
     def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测 - 增强调试版本"""
+        """PK10龙虎详细检测 - 修复版本"""
         dragon_tiger_categories = ['龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
                                   '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名']
         
@@ -2296,27 +2296,18 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 调试输出 - 显示原始分类字符串
-            logger.info(f"分析龙虎记录: 分类='{category}' (原始)")
-            self.debug_category_characters(category)  # 调用特殊字符检测
-            
             # 修复：精确从玩法分类中提取位置
             position = self._extract_exact_pk10_position_from_category(category)
-            logger.info(f"提取位置结果: '{position}'")
-            
-            # 如果从分类中无法提取，使用增强解析器
             if position == '未知位置':
+                # 如果从分类中无法提取，使用增强解析器
                 play_method, position, clean_content = self.enhanced_parser.extract_play_method_and_position(content, 'PK10')
-                logger.info(f"从内容提取位置: '{position}'")
             
             # 提取龙虎投注
             dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            logger.info(f"提取龙虎投注: {dragon_tiger}")
-            
             if dragon_tiger:
                 position_bets[position].update(dragon_tiger)
         
-        # 检查矛盾
+        # 检查矛盾（保持原有逻辑）
         for position, bets in position_bets.items():
             if '龙' in bets and '虎' in bets:
                 record = {
@@ -2330,7 +2321,6 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
-                logger.info(f"发现龙虎矛盾: {record}")
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置全投情况"""
@@ -4428,25 +4418,6 @@ class AnalysisEngine:
             weight += 35
         
         return weight
-
-    def debug_category_characters(self, category):
-        """调试分类字符串中的特殊字符"""
-        category_str = str(category)
-        print(f"分类字符串: {repr(category_str)}")
-        print("字符分析:")
-        for i, char in enumerate(category_str):
-            char_code = ord(char)
-            if char_code > 127 or char in ['\t', '\n', '\r', ' ']:
-                char_name = ""
-                if char == ' ':
-                    char_name = "普通空格"
-                elif char == '\u00A0':
-                    char_name = "不间断空格"
-                elif char == '\u3000':
-                    char_name = "全角空格"
-                elif char == '\t':
-                    char_name = "制表符"
-                print(f"  位置 {i}: 字符 '{char}' -> Unicode: U+{char_code:04X} ({char_name})")
 
     def _extract_exact_position_from_category(self, category):
         """从玩法分类中精确提取位置"""
