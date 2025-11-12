@@ -3008,7 +3008,7 @@ class AnalysisEngine:
         return None
 
     # =============== 六合彩分析方法 ===============
-    def analyze_lhc_patterns(self, df):
+    def analyze_lhc_patterns(self, df, enable_detailed_debug=False):
         """分析六合彩投注模式 - 修复版本"""
         st.info("🔍 开始分析六合彩模式...")
         results = defaultdict(list)
@@ -3030,21 +3030,21 @@ class AnalysisEngine:
                 st.write(f"📊 分析六合彩: {account} {period}")
             
             # 确保正码波色检测被调用
-            self._analyze_lhc_zhengma_wave_comprehensive(account, lottery, period, group, results)
+            self._analyze_lhc_zhengma_wave_comprehensive(account, lottery, period, group, results, enable_detailed_debug)
             
-            # 其他检测方法
-            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
-            self._analyze_lhc_lianwei(account, lottery, period, group, results)
-            self._analyze_lhc_tema(account, lottery, period, group, results)
-            self._analyze_lhc_two_sides(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma(account, lottery, period, group, results)
-            self._analyze_lhc_zhengte(account, lottery, period, group, results)
-            self._analyze_lhc_pingte(account, lottery, period, group, results)
-            self._analyze_lhc_texiao(account, lottery, period, group, results)
-            self._analyze_lhc_yixiao(account, lottery, period, group, results)
-            self._analyze_lhc_wave(account, lottery, period, group, results)
-            self._analyze_lhc_five_elements(account, lottery, period, group, results)
-            self._analyze_lhc_banbo(account, lottery, period, group, results)
+            # 其他检测方法也需要传递调试参数
+            self._analyze_lhc_lianxiao(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_lianwei(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_tema(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_two_sides(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_zhengma(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_zhengte(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_pingte(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_texiao(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_yixiao(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_wave(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_five_elements(account, lottery, period, group, results, enable_detailed_debug)
+            self._analyze_lhc_banbo(account, lottery, period, group, results, enable_detailed_debug)
         
         return results
     
@@ -4855,7 +4855,7 @@ class AnalysisEngine:
                     }
                     self._add_unique_result(results, f'{category_name}{result_suffix}', record)
     
-    def analyze_all_patterns(self, df):
+    def analyze_all_patterns(self, df, enable_detailed_debug=False):
         """综合分析所有模式"""
         logger.info("开始综合分析所有彩票模式...")
         
@@ -4867,25 +4867,23 @@ class AnalysisEngine:
         status_text = st.empty()
         
         all_results = {}
-        # 修改这里：添加3D系列
         lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
         
         for i, lottery_type in enumerate(lottery_types):
             status_text.text(f"正在分析 {lottery_type}...")
             
             if lottery_type == 'PK拾赛车':
-                all_results[lottery_type] = self.analyze_pk10_patterns(df)
+                all_results[lottery_type] = self.analyze_pk10_patterns(df, enable_detailed_debug)
             elif lottery_type == '时时彩':
-                all_results[lottery_type] = self.analyze_ssc_patterns(df)
+                all_results[lottery_type] = self.analyze_ssc_patterns(df, enable_detailed_debug)
             elif lottery_type == '六合彩':
-                all_results[lottery_type] = self.analyze_lhc_patterns(df)
+                all_results[lottery_type] = self.analyze_lhc_patterns(df, enable_detailed_debug)
             elif lottery_type == '快三':
-                all_results[lottery_type] = self.analyze_k3_patterns(df)
+                all_results[lottery_type] = self.analyze_k3_patterns(df, enable_detailed_debug)
             elif lottery_type == '三色彩':
-                all_results[lottery_type] = self.analyze_three_color_patterns(df)
-            # 添加3D系列分析
+                all_results[lottery_type] = self.analyze_three_color_patterns(df, enable_detailed_debug)
             elif lottery_type == '3D系列':
-                all_results[lottery_type] = self.analyze_3d_patterns(df)
+                all_results[lottery_type] = self.analyze_3d_patterns(df, enable_detailed_debug)
             
             progress_bar.progress((i + 1) / len(lottery_types))
         
@@ -5663,7 +5661,7 @@ def main():
                     # ==================== 添加 try-except 代码块开始 ====================
                     try:
                         # 分析投注模式
-                        all_results = analyzer.analyze_all_patterns(df_normalized)
+                        all_results = analyzer.analyze_all_patterns(df_normalized, enable_detailed_debug)
                         
                         # 统计结果
                         total_findings = 0
