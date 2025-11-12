@@ -2311,107 +2311,31 @@ class AnalysisEngine:
                 }
                 self._add_unique_result(results, '超码', record)
     
-    def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
-        """PK10龙虎详细检测 - 捕获所有龙虎玩法"""
-        # 扩展龙虎玩法分类，包括所有可能的变体
-        dragon_tiger_categories = [
-            '龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
-            '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名',
-            '龙虎_冠 军', '龙虎_亚 军', '龙虎_季 军',  # 带空格的变体
-            '龙虎_冠　军', '龙虎_亚　军', '龙虎_季　军',  # 全角空格变体
-            '龙虎_冠  军', '龙虎_亚  军', '龙虎_季  军',  # 多个空格变体
-            '龙虎_前一'  # 前一就是冠军
-        ]
-        
-        dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
-        
-        position_bets = defaultdict(set)
-        
-        for _, row in dragon_tiger_group.iterrows():
-            content = str(row['内容'])
-            category = str(row['玩法分类'])
-            
-            # 使用新的直接提取方法
-            position = self._extract_position_from_dragon_tiger_category(category)
-            
-            # 提取龙虎投注
-            dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
-            
-            if dragon_tiger:
-                position_bets[position].update(dragon_tiger)
-        
-        # 检查矛盾
-        for position, bets in position_bets.items():
-            if '龙' in bets and '虎' in bets:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '龙虎',
-                    '位置': position,
-                    '矛盾类型': '龙虎矛盾',
-                    '投注内容': f"{position}-{','.join(sorted(bets))}",
-                    '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
-                }
-                self._add_unique_result(results, '龙虎矛盾', record)
-    
     def _extract_position_from_dragon_tiger_category(self, category):
-        """从龙虎玩法分类中直接提取位置 - 增强特殊字符处理"""
+        """从龙虎玩法分类中直接提取位置 - 清理版本"""
         category_str = str(category).strip()
         
-        # 首先规范化字符串：将所有类型的空格（包括不间断空格）替换为普通空格
         import re
-        # 匹配所有空白字符，包括普通空格、不间断空格、全角空格等
         category_normalized = re.sub(r'\s+', ' ', category_str)
         
-        # 调试：显示原始和标准化后的字符串
-        st.info(f"🔍 字符串标准化: 原始='{category_str}' -> 标准化='{category_normalized}'")
-        
-        # 直接硬编码映射，避免复杂的字符串处理
         position_mapping = {
-            # 冠军的各种写法 - 包含各种空格变体
-            '龙虎_冠军': '冠军',
-            '龙虎_冠 军': '冠军', 
-            '龙虎_冠　军': '冠军',
-            '龙虎_冠  军': '冠军',
-            '冠军': '冠军',
-            '龙虎_前一': '冠军',
-            
-            # 亚军的各种写法
-            '龙虎_亚军': '亚军',
-            '龙虎_亚 军': '亚军',
-            '龙虎_亚　军': '亚军',
-            '龙虎_亚  军': '亚军',
+            '龙虎_冠军': '冠军', '龙虎_冠 军': '冠军', '龙虎_冠　军': '冠军', '龙虎_冠  军': '冠军',
+            '冠军': '冠军', '龙虎_前一': '冠军',
+            '龙虎_亚军': '亚军', '龙虎_亚 军': '亚军', '龙虎_亚　军': '亚军', '龙虎_亚  军': '亚军',
             '亚军': '亚军',
-            
-            # 季军的各种写法
-            '龙虎_季军': '季军',
-            '龙虎_季 军': '季军',
-            '龙虎_季　军': '季军',
-            '龙虎_季  军': '季军',
-            '季军': '季军',
-            '龙虎_第三名': '季军',
-            
-            # 其他位置
-            '龙虎_第四名': '第四名',
-            '龙虎_第五名': '第五名',
-            '龙虎_第六名': '第六名',
-            '龙虎_第七名': '第七名',
-            '龙虎_第八名': '第八名',
-            '龙虎_第九名': '第九名',
-            '龙虎_第十名': '第十名'
+            '龙虎_季军': '季军', '龙虎_季 军': '季军', '龙虎_季　军': '季军', '龙虎_季  军': '季军',
+            '季军': '季军', '龙虎_第三名': '季军',
+            '龙虎_第四名': '第四名', '龙虎_第五名': '第五名', '龙虎_第六名': '第六名',
+            '龙虎_第七名': '第七名', '龙虎_第八名': '第八名', '龙虎_第九名': '第九名', '龙虎_第十名': '第十名'
         }
         
-        # 直接查找（使用标准化后的字符串）
         if category_normalized in position_mapping:
             return position_mapping[category_normalized]
         
-        # 模糊匹配（使用标准化后的字符串）
         for key, value in position_mapping.items():
             if key in category_normalized:
                 return value
         
-        # 如果还是无法识别，使用简单的关键词匹配
         if '冠军' in category_normalized or '前一' in category_normalized:
             return '冠军'
         elif '亚军' in category_normalized:
@@ -2433,65 +2357,46 @@ class AnalysisEngine:
         elif '第十名' in category_normalized:
             return '第十名'
         
-        # 如果仍然无法识别，显示原始字符串以便调试
-        st.warning(f"⚠️ 无法识别位置: 原始分类='{category_str}', 标准化后='{category_normalized}'")
         return '未知位置'
 
-    def test_dragon_tiger_position_extraction(self):
-        """测试龙虎位置提取功能 - 包含特殊字符测试"""
-        # 模拟包含不间断空格的情况
-        test_cases = [
-            # 基本格式
-            ('龙虎_冠军', '冠军'),
-            ('龙虎_亚军', '亚军'),
-            ('龙虎_季军', '季军'),
-            
-            # 各种空格变体
-            ('龙虎_冠 军', '冠军'),
-            ('龙虎_冠　军', '冠军'),
-            ('龙虎_冠  军', '冠军'),
-            ('龙虎_亚 军', '亚军'),
-            ('龙虎_亚　军', '亚军'),
-            ('龙虎_亚  军', '亚军'),
-            ('龙虎_季 军', '季军'),
-            ('龙虎_季　军', '季军'),
-            ('龙虎_季  军', '季军'),
-            
-            # 模拟不间断空格（\u00A0）
-            ('龙虎_冠\u00A0军', '冠军'),
-            ('龙虎_亚\u00A0军', '亚军'),
-            ('龙虎_季\u00A0军', '季军'),
-            
-            # 其他名称变体
-            ('龙虎_前一', '冠军'),
-            ('龙虎_第三名', '季军'),
-            
-            # 其他位置
-            ('龙虎_第四名', '第四名'),
-            ('龙虎_第五名', '第五名'),
-            
-            # 通用龙虎分类
-            ('龙虎', '通用龙虎'),
+    def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
+        """PK10龙虎详细检测 - 清理版本"""
+        dragon_tiger_categories = [
+            '龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
+            '龙虎_第六名', '龙虎_第七名', '龙虎_第八名', '龙虎_第九名', '龙虎_第十名',
+            '龙虎_冠 军', '龙虎_亚 军', '龙虎_季 军',
+            '龙虎_冠　军', '龙虎_亚　军', '龙虎_季　军',
+            '龙虎_冠  军', '龙虎_亚  军', '龙虎_季  军',
+            '龙虎_前一'
         ]
         
-        st.info("🧪 测试龙虎位置提取功能（包含特殊字符）:")
+        dragon_tiger_group = group[group['玩法分类'].isin(dragon_tiger_categories)]
         
-        results = []
-        for input_category, expected_position in test_cases:
-            actual_position = self._extract_position_from_dragon_tiger_category(input_category)
-            status = "✅" if actual_position == expected_position else "❌"
-            results.append({
-                '输入': repr(input_category),  # 使用repr显示原始字符串
-                '期望': expected_position,
-                '实际': actual_position,
-                '状态': status
-            })
-            st.write(f"{status} 输入: {repr(input_category)} -> 期望: '{expected_position}', 实际: '{actual_position}'")
+        position_bets = defaultdict(set)
         
-        # 显示汇总统计
-        passed = sum(1 for r in results if r['状态'] == '✅')
-        total = len(results)
-        st.success(f"测试结果: {passed}/{total} 通过 ({passed/total*100:.1f}%)")
+        for _, row in dragon_tiger_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            position = self._extract_position_from_dragon_tiger_category(category)
+            dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(content)
+            
+            if dragon_tiger:
+                position_bets[position].update(dragon_tiger)
+        
+        for position, bets in position_bets.items():
+            if '龙' in bets and '虎' in bets:
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '龙虎',
+                    '位置': position,
+                    '矛盾类型': '龙虎矛盾',
+                    '投注内容': f"{position}-{','.join(sorted(bets))}",
+                    '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
+                }
+                self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置全投情况"""
@@ -5564,10 +5469,6 @@ def main():
                 analyzer = AnalysisEngine()
                 result_processor = ResultProcessor()
                 exporter = Exporter()
-
-                # 首先运行测试函数来验证位置提取功能
-                with st.expander("🔧 功能测试", expanded=True):
-                    analyzer.test_dragon_tiger_position_extraction()
                 
                 # 数据清洗
                 df_clean = processor.clean_data(uploaded_file)
