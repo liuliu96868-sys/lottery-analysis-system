@@ -164,7 +164,7 @@ class DataProcessor:
         }
     
     def smart_column_identification(self, df_columns):
-        """智能列识别"""
+        """智能列识别 - 增强相似度算法"""
         identified_columns = {}
         actual_columns = [str(col).strip() for col in df_columns]
         
@@ -179,24 +179,14 @@ class DataProcessor:
                     for possible_name in possible_names:
                         possible_name_lower = possible_name.lower().replace(' ', '').replace('_', '').replace('-', '')
                         
-                        # 增强会员账号识别
-                        if standard_col == '会员账号':
-                            # 更宽松的匹配规则
-                            account_keywords = ['会员', '账号', '账户', '用户', '玩家', 'id']
-                            if any(keyword in actual_col_lower for keyword in account_keywords):
-                                identified_columns[actual_col] = standard_col
-                                st.success(f"✅ 识别列名: {actual_col} -> {standard_col}")
-                                found = True
-                                break
-                        else:
-                            # 其他列的原有匹配逻辑
-                            if (possible_name_lower in actual_col_lower or 
-                                actual_col_lower in possible_name_lower or
-                                len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower) > 0.7):
-                                identified_columns[actual_col] = standard_col
-                                st.success(f"✅ 识别列名: {actual_col} -> {standard_col}")
-                                found = True
-                                break
+                        # === 新增：使用相似度算法 ===
+                        similarity = len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower)
+                        if similarity > 0.7:  # 70%相似度阈值
+                            identified_columns[actual_col] = standard_col
+                            st.success(f"✅ 识别列名: {actual_col} -> {standard_col} (相似度: {similarity:.2f})")
+                            found = True
+                            break
+                        # === 新增结束 ===
                     
                     if found:
                         break
@@ -231,6 +221,23 @@ class DataProcessor:
                 null_count = df[col].isnull().sum()
                 if null_count > 0:
                     issues.append(f"列 '{col}' 有 {null_count} 个空值")
+
+        # 特别检查会员账号的完整性
+        if '会员账号' in df.columns:
+            # === 新增：截断账号检测 ===
+            truncated_accounts = df[df['会员账号'].str.contains(r'\.\.\.|…', na=False)]
+            if len(truncated_accounts) > 0:
+                issues.append(f"发现 {len(truncated_accounts)} 个可能被截断的会员账号")
+            
+            # === 新增：账号长度异常检测 ===
+            account_lengths = df['会员账号'].str.len()
+            if account_lengths.max() > 50:  # 假设正常账号长度不超过50个字符
+                issues.append("发现异常长度的会员账号")
+            
+            # === 新增：账号格式样本显示 ===
+            unique_accounts = df['会员账号'].unique()[:5]
+            sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
+            st.info(f"会员账号格式样本: {sample_info}")
         
         # 特别检查会员账号的完整性
         if '会员账号' in df.columns:
@@ -284,6 +291,75 @@ class DataProcessor:
             st.success("✅ 数据质量检查通过")
         
         return issues
+
+    @staticmethod
+    def enhanced_extract_amount(amount_text):
+        """增强金额提取 - 支持多种格式"""
+        try:
+            if pd.isna(amount_text) or amount_text is None:
+                return 0.0
+            
+            text = str(amount_text).strip()
+            if text == '':
+                return 0.0
+            
+            # 方法1: 直接转换（处理纯数字）
+            try:
+                # 移除所有非数字字符（除了点和负号）
+                clean_text = re.sub(r'[^\d.-]', '', text)
+                if clean_text and clean_text != '-' and clean_text != '.':
+                    amount = float(clean_text)
+                    if amount >= 0:
+                        return amount
+            except:
+                pass
+            
+            # 方法2: 处理千位分隔符格式
+            try:
+                # 移除逗号和全角逗号，然后转换
+                clean_text = text.replace(',', '').replace('，', '')
+                amount = float(clean_text)
+                if amount >= 0:
+                    return amount
+            except:
+                pass
+            
+            # 方法3: 处理"5.000"这种格式
+            if re.match(r'^\d+\.\d{3}$', text):
+                try:
+                    amount = float(text)
+                    return amount
+                except:
+                    pass
+            
+            # 方法4: 使用正则表达式提取各种格式
+            patterns = [
+                r'投注\s*[:：]?\s*([\d,.]+)',
+                r'金额\s*[:：]?\s*([\d,.]+)',
+                r'下注金额\s*([\d,.]+)',
+                r'([\d,.]+)\s*元',
+                r'￥\s*([\d,.]+)',
+                r'¥\s*([\d,.]+)',
+                r'([\d,.]+)\s*RMB',
+                r'([\d,.]+)$'
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    amount_str = match.group(1).replace(',', '').replace('，', '')
+                    try:
+                        amount = float(amount_str)
+                        if amount >= 0:
+                            return amount
+                    except:
+                        continue
+            
+            return 0.0
+            
+        except Exception as e:
+            logger.warning(f"金额提取失败: {amount_text}, 错误: {str(e)}")
+            return 0.0
     
     def clean_data(self, uploaded_file):
         """数据清洗主函数"""
@@ -365,8 +441,9 @@ class DataProcessor:
             # 验证金额列的有效性
             if '金额' in df_clean.columns:
                 try:
-                    # 尝试转换为数值类型
-                    df_clean['金额'] = pd.to_numeric(df_clean['金额'], errors='coerce')
+                    # === 修改：使用增强金额提取 ===
+                    df_clean['金额'] = df_clean['金额'].apply(self.enhanced_extract_amount)
+                    # === 修改结束 ===
                     invalid_amounts = df_clean['金额'].isnull().sum()
                     if invalid_amounts > 0:
                         st.warning(f"发现 {invalid_amounts} 条无效金额记录")
@@ -987,6 +1064,16 @@ class DataAnalyzer:
     def __init__(self):
         self.cache = {}
         self.content_parser = ContentParser()  # 添加统一解析器
+
+    @lru_cache(maxsize=1000)
+    def cached_extract_numbers(self, content, min_num=0, max_num=49, is_pk10=False):
+        """带缓存的号码提取"""
+        return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
+    
+    @lru_cache(maxsize=500)
+    def cached_extract_amount(self, amount_text):
+        """带缓存的金额提取"""
+        return DataProcessor.enhanced_extract_amount(amount_text)
     
     @lru_cache(maxsize=10000)
     def extract_numbers_cached(self, content, min_num, max_num, is_pk10=False):
