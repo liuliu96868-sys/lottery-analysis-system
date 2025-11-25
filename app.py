@@ -907,8 +907,7 @@ class EnhancedContentParser:
                 break
         
         return play_method, position, clean_content
-    
-    @staticmethod
+
     @staticmethod
     def _parse_pk10_content(content):
         """解析PK10内容 - 专门修复冠军亚军季军"""
@@ -2872,7 +2871,7 @@ class AnalysisEngine:
         
         position_numbers = defaultdict(set)
         
-        # 修复这里的缩进：整个for循环应该缩进
+        # 这个for循环需要缩进4个空格（在方法体内）
         for _, row in dingwei_detailed_group.iterrows():
             content = str(row['内容'])
             category = str(row['玩法分类'])
@@ -2881,8 +2880,8 @@ class AnalysisEngine:
             actual_category = self.normalize_play_category_from_content(content, category, 'SSC')
             
             # 增强位置判断：从玩法分类推断位置
-            inferred_position = self._infer_ssc_position_from_category(actual_category)  # 使用 actual_category
-        
+            inferred_position = self._infer_ssc_position_from_category(actual_category)
+            
             # 使用统一解析器
             bets_by_position = ContentParser.parse_ssc_content(content)
             
