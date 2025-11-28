@@ -2485,41 +2485,180 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
-        """检测PK10十个位置全投情况"""
+        """检测PK10十个位置投注完全相同内容的情况 - 严格版本"""
         
         # 定义十个标准位置
         standard_positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
                              '第六名', '第七名', '第八名', '第九名', '第十名']
         
-        # 收集所有位置投注
-        all_position_bets = defaultdict(set)
+        # 收集所有位置的具体投注内容
+        position_bets = defaultdict(set)
         
-        # 分析各种玩法中的位置投注
-        self._collect_position_bets_from_plays(account, lottery, period, group, all_position_bets)
+        # 从各种玩法中收集投注信息
+        self._collect_detailed_position_bets(account, lottery, period, group, position_bets)
         
-        # 检查是否有十个位置都有投注
-        positions_with_bets = set()
+        # 检查十个位置是否都有投注
+        positions_with_bets = [pos for pos in standard_positions if position_bets.get(pos)]
         
+        if len(positions_with_bets) < 10:
+            return  # 不是十个位置都有投注
+        
+        # 检查十个位置的投注内容是否完全相同
+        all_bet_sets = []
         for position in standard_positions:
-            if position in all_position_bets and all_position_bets[position]:
-                positions_with_bets.add(position)
+            bets = position_bets.get(position, set())
+            # 使用frozenset便于比较，因为set本身不可哈希
+            all_bet_sets.append(frozenset(bets))
         
-        # 如果十个位置都有投注
-        if len(positions_with_bets) >= THRESHOLD_CONFIG['PK10']['all_positions_bet']:
-            # 分析投注类型（大小或单双）
-            bet_types = self._analyze_bet_types(all_position_bets, standard_positions)
+        # 如果十个位置的投注内容集合都相同
+        if len(set(all_bet_sets)) == 1:
+            common_bets = all_bet_sets[0]  # 获取共同的投注内容
             
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '全位置投注',
-                '投注位置数': len(positions_with_bets),
-                '投注类型': bet_types,
-                '投注内容': f"十个位置全投: {bet_types}",
-                '排序权重': self._calculate_sort_weight({'投注位置数': len(positions_with_bets)}, '十个位置全投')
-            }
-            self._add_unique_result(results, '十个位置全投', record)
+            if common_bets:  # 确保不是空集合
+                # 分析具体的投注类型
+                bet_description = self._analyze_identical_bets_detailed(common_bets)
+                
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '十个位置相同投注',
+                    '投注位置数': 10,
+                    '投注类型': bet_description,
+                    '投注内容': f"十个位置相同投注: {bet_description}",
+                    '排序权重': self._calculate_sort_weight({'投注位置数': 10}, '十个位置相同投注')
+                }
+                self._add_unique_result(results, '十个位置相同投注', record)
+    
+    def _collect_detailed_position_bets(self, account, lottery, period, group, position_bets):
+        """详细收集位置投注信息 - 专门用于十个位置相同投注检测"""
+        
+        # 1. 从两面玩法收集
+        two_sides_categories = ['两面', '双面']
+        two_sides_group = group[group['玩法分类'].isin(two_sides_categories)]
+        
+        for _, row in two_sides_group.iterrows():
+            content = str(row['内容'])
+            self._extract_detailed_bets_from_content(content, position_bets)
+        
+        # 2. 从独立玩法收集（大小单双）
+        independent_categories = [
+            '大小_冠军', '大小_亚军', '大小_季军', '大小_第四名', '大小_第五名',
+            '大小_第六名', '大小_第七名', '大小_第八名', '大小_第九名', '大小_第十名',
+            '单双_冠军', '单双_亚军', '单双_季军', '单双_第四名', '单双_第五名',
+            '单双_第六名', '单双_第七名', '单双_第八名', '单双_第九名', '单双_第十名'
+        ]
+        
+        independent_group = group[group['玩法分类'].isin(independent_categories)]
+        
+        for _, row in independent_group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 确定位置
+            position = self._extract_position_from_independent_category(category)
+            if position:
+                # 提取具体的投注内容
+                bets = self.data_analyzer.extract_size_parity_from_content(content)
+                if bets:
+                    position_bets[position].update(bets)
+        
+        # 3. 从号码类玩法收集
+        number_categories = [
+            '1-5名', '6-10名', '冠军', '前一', '亚军', '第三名', '第四名', '第五名',
+            '第六名', '第七名', '第八名', '第九名', '第十名', '定位胆',
+            '定位胆_第1~5名', '定位胆_第6~10名'
+        ]
+        
+        number_group = group[group['玩法分类'].isin(number_categories)]
+        
+        for _, row in number_group.iterrows():
+            content = str(row['内容'])
+            
+            # 使用统一解析器解析位置和号码
+            bets_by_position = ContentParser.parse_pk10_content(content)
+            
+            for position, numbers in bets_by_position.items():
+                if numbers:  # 如果有号码投注
+                    # 记录具体号码
+                    for num in numbers:
+                        position_bets[position].add(f'号码{num}')
+    
+    def _extract_position_from_independent_category(self, category):
+        """从独立玩法分类中提取位置"""
+        category_str = str(category)
+        
+        position_mapping = {
+            '冠军': ['冠军', '前一'],
+            '亚军': ['亚军'],
+            '季军': ['季军', '第三名'],
+            '第四名': ['第四名'],
+            '第五名': ['第五名'],
+            '第六名': ['第六名'],
+            '第七名': ['第七名'],
+            '第八名': ['第八名'],
+            '第九名': ['第九名'],
+            '第十名': ['第十名']
+        }
+        
+        for position, keywords in position_mapping.items():
+            for keyword in keywords:
+                if keyword in category_str:
+                    return position
+        
+        return None
+    
+    def _extract_detailed_bets_from_content(self, content, position_bets):
+        """从内容中提取详细的投注信息"""
+        content_str = str(content)
+        
+        if '-' in content_str:
+            parts = content_str.split(',')
+            for part in parts:
+                if '-' in part:
+                    try:
+                        position, bet_option = part.split('-', 1)
+                        position = self.data_analyzer._normalize_pk10_position(position)
+                        bet_option = bet_option.strip()
+                        
+                        # 记录具体的投注类型
+                        if bet_option in ['大', '小', '单', '双']:
+                            position_bets[position].add(bet_option)
+                    except ValueError:
+                        continue
+    
+    def _analyze_identical_bets_detailed(self, common_bets):
+        """分析十个位置相同的投注内容 - 详细版本"""
+        bet_list = list(common_bets)
+        
+        # 如果是单一投注类型
+        if len(bet_list) == 1:
+            bet = bet_list[0]
+            if bet in ['大', '小', '单', '双']:
+                return f"全部投注{bet}"
+            elif bet.startswith('号码'):
+                # 提取号码，如'号码5' -> '号码5'
+                return f"全部投注{bet}"
+            else:
+                return f"全部投注{bet}"
+        
+        # 如果是组合投注（如同时投注大和单）
+        else:
+            # 先排序，确保显示一致
+            sorted_bets = sorted(bet_list)
+            # 分离号码投注和其他投注
+            number_bets = [bet for bet in sorted_bets if bet.startswith('号码')]
+            other_bets = [bet for bet in sorted_bets if not bet.startswith('号码')]
+            
+            descriptions = []
+            if other_bets:
+                descriptions.append("、".join(other_bets))
+            if number_bets:
+                # 如果有多个号码，显示所有号码
+                number_desc = "、".join(number_bets)
+                descriptions.append(number_desc)
+            
+            return "，".join(descriptions)
     
     def _collect_position_bets_from_plays(self, account, lottery, period, group, all_position_bets):
         """从各种玩法中收集位置投注信息 - 增强版本，记录具体投注内容"""
@@ -4838,7 +4977,7 @@ class ResultProcessor:
                 '独立玩法矛盾': '独立玩法矛盾',
                 '前一多码': '前一多码',
                 '龙虎矛盾': '龙虎矛盾',
-                '十个位置全投': '十个位置全投'
+                '十个位置相同投注': '十个位置相同投注'
             },
             '快三': {
                 '和值多码': '和值多码',
