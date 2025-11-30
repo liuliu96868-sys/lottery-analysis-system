@@ -362,15 +362,17 @@ class DataProcessor:
             return 0.0
     
     def clean_data(self, uploaded_file):
-        """数据清洗主函数"""
+        """数据清洗主函数 - 修改版本：隐藏中间过程信息"""
         try:
             # 第一次读取用于定位
             df_temp = pd.read_excel(uploaded_file, header=None, nrows=50)
-            st.info(f"原始数据维度: {df_temp.shape}")
+            # 隐藏原始数据维度信息
+            # st.info(f"原始数据维度: {df_temp.shape}")
             
             # 找到数据起始位置
             start_row, start_col = self.find_data_start(df_temp)
-            st.info(f"数据起始位置: 第{start_row+1}行, 第{start_col+1}列")
+            # 隐藏数据起始位置信息
+            # st.info(f"数据起始位置: 第{start_row+1}行, 第{start_col+1}列")
             
             # 重新读取数据 - 特别处理常规格式单元格
             df_clean = pd.read_excel(
@@ -387,7 +389,8 @@ class DataProcessor:
             if start_col > 0:
                 df_clean = df_clean.iloc[:, start_col:]
             
-            st.info(f"清理后数据维度: {df_clean.shape}")
+            # 隐藏清理后数据维度信息
+            # st.info(f"清理后数据维度: {df_clean.shape}")
             
             # 智能列识别
             column_mapping = self.smart_column_identification(df_clean.columns)
@@ -408,15 +411,15 @@ class DataProcessor:
                         manual_mapping[df_clean.columns[i]] = col_name
                 
                 df_clean = df_clean.rename(columns=manual_mapping)
-                st.info(f"手动重命名后的列: {list(df_clean.columns)}")
+                # 隐藏手动重命名后的列信息
+                # st.info(f"手动重命名后的列: {list(df_clean.columns)}")
             
             # 数据清理
             initial_count = len(df_clean)
             df_clean = df_clean.dropna(subset=[col for col in self.required_columns if col in df_clean.columns])
             df_clean = df_clean.dropna(axis=1, how='all')
             
-            # === 添加特殊字符处理 ===
-            # 数据清理 - 添加特殊字符处理
+            # 添加特殊字符处理
             for col in df_clean.columns:
                 if col in ['玩法', '内容']:  # 特别处理这些列
                     df_clean[col] = df_clean[col].apply(
@@ -441,9 +444,8 @@ class DataProcessor:
             # 验证金额列的有效性
             if '金额' in df_clean.columns:
                 try:
-                    # === 修改：使用增强金额提取 ===
+                    # 使用增强金额提取
                     df_clean['金额'] = df_clean['金额'].apply(self.enhanced_extract_amount)
-                    # === 修改结束 ===
                     invalid_amounts = df_clean['金额'].isnull().sum()
                     if invalid_amounts > 0:
                         st.warning(f"发现 {invalid_amounts} 条无效金额记录")
@@ -455,9 +457,14 @@ class DataProcessor:
             
             st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
             
-            # 显示会员账号样本
-            st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
-
+            # 隐藏会员账号样本信息
+            # st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
+            
+            # 隐藏彩种分布显示
+            # lottery_dist = df_clean['彩种'].value_counts()
+            # with st.expander("🎯 彩种分布", expanded=False):
+            #     st.dataframe(lottery_dist.reset_index().rename(columns={'index': '彩种', '彩种': '数量'}))
+            
             return df_clean
             
         except Exception as e:
