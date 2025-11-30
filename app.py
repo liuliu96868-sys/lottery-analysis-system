@@ -164,35 +164,37 @@ class DataProcessor:
         }
     
     def smart_column_identification(self, df_columns):
-        """智能列识别 - 增强相似度算法"""
+        """智能列识别 - 隐藏详情版本"""
         identified_columns = {}
         actual_columns = [str(col).strip() for col in df_columns]
         
-        with st.expander("🔍 列名识别详情", expanded=False):
-            st.info(f"检测到的列名: {actual_columns}")
+        # 隐藏列名识别详情展开器
+        # with st.expander("🔍 列名识别详情", expanded=False):
+        #     st.info(f"检测到的列名: {actual_columns}")
             
-            for standard_col, possible_names in self.column_mapping.items():
-                found = False
-                for actual_col in actual_columns:
-                    actual_col_lower = actual_col.lower().replace(' ', '').replace('_', '').replace('-', '')
+        for standard_col, possible_names in self.column_mapping.items():
+            found = False
+            for actual_col in actual_columns:
+                actual_col_lower = actual_col.lower().replace(' ', '').replace('_', '').replace('-', '')
+                
+                for possible_name in possible_names:
+                    possible_name_lower = possible_name.lower().replace(' ', '').replace('_', '').replace('-', '')
                     
-                    for possible_name in possible_names:
-                        possible_name_lower = possible_name.lower().replace(' ', '').replace('_', '').replace('-', '')
-                        
-                        # === 新增：使用相似度算法 ===
-                        similarity = len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower)
-                        if similarity > 0.7:  # 70%相似度阈值
-                            identified_columns[actual_col] = standard_col
-                            st.success(f"✅ 识别列名: {actual_col} -> {standard_col} (相似度: {similarity:.2f})")
-                            found = True
-                            break
-                        # === 新增结束 ===
-                    
-                    if found:
+                    # 使用相似度算法
+                    similarity = len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower)
+                    if similarity > 0.7:  # 70%相似度阈值
+                        identified_columns[actual_col] = standard_col
+                        # 隐藏识别成功消息
+                        # st.success(f"✅ 识别列名: {actual_col} -> {standard_col} (相似度: {similarity:.2f})")
+                        found = True
                         break
                 
-                if not found:
-                    st.warning(f"⚠️ 未识别到 {standard_col} 对应的列名")
+                if found:
+                    break
+            
+            # 隐藏未识别警告
+            # if not found:
+            #     st.warning(f"⚠️ 未识别到 {standard_col} 对应的列名")
         
         return identified_columns
     
@@ -206,7 +208,7 @@ class DataProcessor:
         return 0, 0
     
     def validate_data_quality(self, df):
-        """数据质量验证"""
+        """数据质量验证 - 隐藏所有输出版本"""
         logger.info("正在进行数据质量验证...")
         issues = []
         
@@ -221,40 +223,23 @@ class DataProcessor:
                 null_count = df[col].isnull().sum()
                 if null_count > 0:
                     issues.append(f"列 '{col}' 有 {null_count} 个空值")
-
+    
         # 特别检查会员账号的完整性
         if '会员账号' in df.columns:
-            # === 新增：截断账号检测 ===
+            # 截断账号检测
             truncated_accounts = df[df['会员账号'].str.contains(r'\.\.\.|…', na=False)]
             if len(truncated_accounts) > 0:
                 issues.append(f"发现 {len(truncated_accounts)} 个可能被截断的会员账号")
             
-            # === 新增：账号长度异常检测 ===
+            # 账号长度异常检测
             account_lengths = df['会员账号'].str.len()
             if account_lengths.max() > 50:  # 假设正常账号长度不超过50个字符
                 issues.append("发现异常长度的会员账号")
             
-            # === 新增：账号格式样本显示 ===
-            unique_accounts = df['会员账号'].unique()[:5]
-            sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
-            st.info(f"会员账号格式样本: {sample_info}")
-        
-        # 特别检查会员账号的完整性
-        if '会员账号' in df.columns:
-            # 检查是否有被截断的账号
-            truncated_accounts = df[df['会员账号'].str.contains(r'\.\.\.|…', na=False)]
-            if len(truncated_accounts) > 0:
-                issues.append(f"发现 {len(truncated_accounts)} 个可能被截断的会员账号")
-            
-            # 检查账号长度异常的情况
-            account_lengths = df['会员账号'].str.len()
-            if account_lengths.max() > 50:  # 假设正常账号长度不超过50个字符
-                issues.append("发现异常长度的会员账号")
-            
-            # 显示账号格式样本
-            unique_accounts = df['会员账号'].unique()[:5]
-            sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
-            st.info(f"会员账号格式样本: {sample_info}")
+            # 隐藏账号格式样本显示
+            # unique_accounts = df['会员账号'].unique()[:5]
+            # sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
+            # st.info(f"会员账号格式样本: {sample_info}")
         
         # 检查数据类型
         if '期号' in df.columns:
@@ -283,12 +268,15 @@ class DataProcessor:
         if duplicate_count > 0:
             issues.append(f"发现 {duplicate_count} 条重复记录")
         
-        if issues:
-            with st.expander("⚠️ 数据质量问题", expanded=True):
-                for issue in issues:
-                    st.warning(f"  - {issue}")
-        else:
-            st.success("✅ 数据质量检查通过")
+        # 隐藏数据质量问题展开器
+        # if issues:
+        #     with st.expander("⚠️ 数据质量问题", expanded=True):
+        #         for issue in issues:
+        #             st.warning(f"  - {issue}")
+        # else:
+        #     # 隐藏数据质量检查通过消息
+        #     # st.success("✅ 数据质量检查通过")
+        #     pass
         
         return issues
 
@@ -362,17 +350,13 @@ class DataProcessor:
             return 0.0
     
     def clean_data(self, uploaded_file):
-        """数据清洗主函数 - 修改版本：隐藏中间过程信息"""
+        """数据清洗主函数 - 修改版本：隐藏所有中间过程信息"""
         try:
             # 第一次读取用于定位
             df_temp = pd.read_excel(uploaded_file, header=None, nrows=50)
-            # 隐藏原始数据维度信息
-            # st.info(f"原始数据维度: {df_temp.shape}")
             
             # 找到数据起始位置
             start_row, start_col = self.find_data_start(df_temp)
-            # 隐藏数据起始位置信息
-            # st.info(f"数据起始位置: 第{start_row+1}行, 第{start_col+1}列")
             
             # 重新读取数据 - 特别处理常规格式单元格
             df_clean = pd.read_excel(
@@ -389,21 +373,20 @@ class DataProcessor:
             if start_col > 0:
                 df_clean = df_clean.iloc[:, start_col:]
             
-            # 隐藏清理后数据维度信息
-            # st.info(f"清理后数据维度: {df_clean.shape}")
-            
-            # 智能列识别
+            # 智能列识别 - 隐藏详情
             column_mapping = self.smart_column_identification(df_clean.columns)
             if column_mapping:
                 df_clean = df_clean.rename(columns=column_mapping)
-                st.success("✅ 列名识别完成!")
+                # 隐藏列名识别完成消息
+                # st.success("✅ 列名识别完成!")
                 for old_col, new_col in column_mapping.items():
                     logger.info(f"  {old_col} -> {new_col}")
             
             # 确保必要列存在
             missing_columns = [col for col in self.required_columns if col not in df_clean.columns]
             if missing_columns and len(df_clean.columns) >= 4:
-                st.warning("自动映射列名...")
+                # 隐藏自动映射消息
+                # st.warning("自动映射列名...")
                 manual_mapping = {}
                 col_names = ['会员账号', '彩种', '期号', '内容', '玩法', '金额']
                 for i, col_name in enumerate(col_names):
@@ -411,8 +394,6 @@ class DataProcessor:
                         manual_mapping[df_clean.columns[i]] = col_name
                 
                 df_clean = df_clean.rename(columns=manual_mapping)
-                # 隐藏手动重命名后的列信息
-                # st.info(f"手动重命名后的列: {list(df_clean.columns)}")
             
             # 数据清理
             initial_count = len(df_clean)
@@ -448,22 +429,19 @@ class DataProcessor:
                     df_clean['金额'] = df_clean['金额'].apply(self.enhanced_extract_amount)
                     invalid_amounts = df_clean['金额'].isnull().sum()
                     if invalid_amounts > 0:
-                        st.warning(f"发现 {invalid_amounts} 条无效金额记录")
+                        # 隐藏无效金额记录警告
+                        # st.warning(f"发现 {invalid_amounts} 条无效金额记录")
+                        pass
                 except Exception as e:
-                    st.warning(f"金额列转换失败: {str(e)}")
+                    # 隐藏金额转换失败警告
+                    # st.warning(f"金额列转换失败: {str(e)}")
+                    pass
             
-            # 数据质量验证 - 添加会员账号完整性检查
-            self.validate_data_quality(df_clean)
+            # 数据质量验证 - 隐藏所有输出
+            issues = self.validate_data_quality(df_clean)
             
-            st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
-            
-            # 隐藏会员账号样本信息
-            # st.info(f"📊 唯一会员账号数: {df_clean['会员账号'].nunique()}")
-            
-            # 隐藏彩种分布显示
-            # lottery_dist = df_clean['彩种'].value_counts()
-            # with st.expander("🎯 彩种分布", expanded=False):
-            #     st.dataframe(lottery_dist.reset_index().rename(columns={'index': '彩种', '彩种': '数量'}))
+            # 隐藏数据清洗完成消息
+            # st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
             
             return df_clean
             
