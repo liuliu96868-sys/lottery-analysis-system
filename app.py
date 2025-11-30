@@ -5313,7 +5313,7 @@ class ResultProcessor:
         # 完全移除彩种分布部分
         
         if summary['账户违规统计']:
-            with st.expander("👥 参与账户详细统计", expanded=False):
+            with st.expander("👥 参与账户详细统计", expanded=True):
                 # 创建新的DataFrame显示格式
                 account_stats = []
                 for account_stat in summary['账户违规统计']:
@@ -5710,15 +5710,7 @@ def main():
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("总记录数", len(df_clean))
-                    with col2:
-                        st.metric("唯一会员数", df_clean['会员账号'].nunique())
-                    with col3:
-                        st.metric("彩种数量", df_clean['彩种'].nunique())
-                    
+
                     # 统一玩法分类
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
@@ -5757,10 +5749,7 @@ def main():
                     for lottery_type, results in all_results.items():
                         type_count = sum(len(records) for records in results.values())
                         total_findings += type_count
-                    
-                    with col4:
-                        st.metric("可疑记录数", total_findings)
-                    
+
                     with st.expander("📊 数据预览", expanded=False):
                         st.dataframe(df_clean.head(10))
                     
