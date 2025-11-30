@@ -5264,27 +5264,43 @@ class ResultProcessor:
         return selected_records
     
     def create_summary_stats(self, account_results, df_clean):
-        """创建汇总统计"""
+        """创建汇总统计 - 详细版本：包含每个彩种的投注期数详情"""
         total_violations = sum(data['violation_count'] for data in account_results.values())
+        
+        # 计算每个账户在每个彩种的投注期数
+        account_lottery_periods = df_clean.groupby(['会员账号', '彩种'])['期号'].nunique().reset_index()
         
         summary = {
             '总记录数': len(df_clean),
             '总会员数': df_clean['会员账号'].nunique(),
             '违规账户数': len(account_results),
             '总违规记录数': total_violations,
-            '总违规期数': sum(len(data['periods']) for data in account_results.values()),
             '彩种分布': df_clean['彩种'].value_counts().to_dict(),
             '违规类型统计': defaultdict(int),
-            '账户违规统计': []
+            '账户违规统计': [],
+            '账户彩种详情': defaultdict(list)  # 新增：存储每个账户的彩种详情
         }
         
         for account, data in account_results.items():
             for violation_type in data['violation_types']:
                 summary['违规类型统计'][violation_type] += len(data['violations_by_type'][violation_type])
             
+            # 获取该账户在所有彩种的投注期数详情
+            account_periods_details = account_lottery_periods[account_lottery_periods['会员账号'] == account]
+            
+            # 计算总投注期数
+            total_periods = account_periods_details['期号'].sum() if not account_periods_details.empty else 0
+            
+            # 存储彩种详情
+            lottery_details = []
+            for _, row in account_periods_details.iterrows():
+                lottery_details.append(f"{row['彩种']}({row['期号']}期)")
+            
+            summary['账户彩种详情'][account] = lottery_details
+            
             summary['账户违规统计'].append({
                 '账户': account,
-                '违规期数': len(data['periods']),
+                '彩种投注期数': total_periods,  # 该账户在所有彩种的总投注期数
                 '违规次数': data['violation_count'],
                 '违规类型数': len(data['violation_types']),
                 '彩种数': len(data['lottery_types'])
@@ -5295,7 +5311,7 @@ class ResultProcessor:
         return summary
     
     def display_summary(self, summary):
-        """显示汇总统计 - 修改版本：去掉违规类型分布，调整账户违规排名"""
+        """显示汇总统计 - 增强版本：显示彩种详情"""
         st.subheader("📊 汇总统计")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -5308,19 +5324,19 @@ class ResultProcessor:
         with col4:
             st.metric("总违规记录数", summary['总违规记录数'])
         
-        # 移除违规类型分布部分
-        
         if summary['账户违规统计']:
             with st.expander("👥 参与账户详细统计", expanded=False):
                 # 创建新的DataFrame显示格式
                 account_stats = []
                 for account_stat in summary['账户违规统计']:
+                    account = account_stat['账户']
                     account_stats.append({
-                        '账户': account_stat['账户'],
-                        '违规期数': account_stat['违规期数'],
+                        '账户': account,
+                        '彩种投注期数': account_stat['彩种投注期数'],
                         '违规次数': account_stat['违规次数'],
                         '违规类型数': account_stat['违规类型数'],
-                        '彩种数': account_stat['彩种数']
+                        '彩种数': account_stat['彩种数'],
+                        '彩种详情': '; '.join(summary['账户彩种详情'].get(account, []))
                     })
                 
                 account_df = pd.DataFrame(account_stats)
@@ -5328,10 +5344,11 @@ class ResultProcessor:
                 # 使用更友好的列名显示
                 display_df = account_df.rename(columns={
                     '账户': '会员账号',
-                    '违规期数': '违规期数',
+                    '彩种投注期数': '彩种投注期数',
                     '违规次数': '违规次数',
                     '违规类型数': '违规类型数',
-                    '彩种数': '涉及彩种数'
+                    '彩种数': '涉及彩种数',
+                    '彩种详情': '彩种详情（彩种(期数)）'
                 })
                 
                 st.dataframe(display_df, hide_index=True, use_container_width=True)
