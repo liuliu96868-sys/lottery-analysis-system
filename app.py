@@ -5078,7 +5078,7 @@ class ResultProcessor:
         self.displayed_records_cache = set()  # 缓存已显示的记录
     
     def organize_results_by_account(self, all_results):
-        """组织结果按账户分类本"""
+        """组织结果按账户分类"""
         account_results = defaultdict(lambda: {
             'violations': [],
             'periods': set(),
@@ -5295,7 +5295,7 @@ class ResultProcessor:
         return summary
     
     def display_summary(self, summary):
-        """显示汇总统计"""
+        """显示汇总统计 - 修改版本：去掉违规类型分布，调整账户违规排名"""
         st.subheader("📊 汇总统计")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -5308,27 +5308,36 @@ class ResultProcessor:
         with col4:
             st.metric("总违规记录数", summary['总违规记录数'])
         
-        if summary['违规类型统计']:
-            with st.expander("📈 违规类型分布", expanded=False):
-                violation_df = pd.DataFrame({
-                    '违规类型': list(summary['违规类型统计'].keys()),
-                    '数量': list(summary['违规类型统计'].values())
-                }).sort_values('数量', ascending=False)
-                
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.bar_chart(violation_df.set_index('违规类型'))
-                with col2:
-                    st.dataframe(violation_df, hide_index=True)
+        # 移除违规类型分布部分
         
         if summary['账户违规统计']:
-            with st.expander("🏆 账户违规排名", expanded=False):
-                top_accounts = summary['账户违规统计'][:10]
-                account_df = pd.DataFrame(top_accounts)
-                st.dataframe(account_df, hide_index=True)
+            with st.expander("👥 参与账户详细统计", expanded=False):
+                # 创建新的DataFrame显示格式
+                account_stats = []
+                for account_stat in summary['账户违规统计']:
+                    account_stats.append({
+                        '账户': account_stat['账户'],
+                        '违规期数': account_stat['违规期数'],
+                        '违规次数': account_stat['违规次数'],
+                        '违规类型数': account_stat['违规类型数'],
+                        '彩种数': account_stat['彩种数']
+                    })
+                
+                account_df = pd.DataFrame(account_stats)
+                
+                # 使用更友好的列名显示
+                display_df = account_df.rename(columns={
+                    '账户': '会员账号',
+                    '违规期数': '违规期数',
+                    '违规次数': '违规次数',
+                    '违规类型数': '违规类型数',
+                    '彩种数': '涉及彩种数'
+                })
+                
+                st.dataframe(display_df, hide_index=True, use_container_width=True)
     
     def display_account_results(self, account_results):
-        """显示账户结果本"""
+        """显示账户结果"""
         if not account_results:
             st.info("🎉 未发现可疑投注行为")
             return
