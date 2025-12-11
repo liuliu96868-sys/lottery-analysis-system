@@ -5754,7 +5754,7 @@ class Exporter:
     """结果导出器"""
     
     def prepare_export_data(self, account_summary):
-        """准备导出数据"""
+        """准备导出数据 - 增强版本，包含所有字段"""
         export_data = []
         
         for account, summary in account_summary.items():
@@ -5766,7 +5766,14 @@ class Exporter:
                             '彩种': lottery,
                             '期号': record['期号'],
                             '玩法分类': record['玩法分类'],
-                            '行为类型': behavior_type
+                            '行为类型': behavior_type,
+                            '违规类型': record.get('违规类型', ''),
+                            '投注内容': record.get('投注内容', ''),  # 添加投注内容
+                            '投注项': record.get('投注项', ''),      # 添加投注项
+                            '投注类型': record.get('投注类型', ''),  # 添加投注类型
+                            '位置数量': record.get('位置数量', 0),   # 添加位置数量
+                            '出现位置': record.get('出现位置', ''),  # 添加出现位置
+                            '详细信息': record.get('详细信息', '无详情')  # 添加详细信息
                         }
                         
                         # 添加矛盾类型
@@ -5776,12 +5783,18 @@ class Exporter:
                         # 添加数量信息
                         self._add_quantity_info(export_record, record, behavior_type)
                         
+                        # 添加其他字段
+                        for field in ['号码数量', '生肖数量', '尾数数量', '投注区间数', 
+                                     '投注波色数', '投注五行数', '投注半波数']:
+                            if field in record:
+                                export_record[field] = record[field]
+                        
                         export_data.append(export_record)
         
         return export_data
     
     def _add_quantity_info(self, export_record, record, behavior_type):
-        """添加数量信息到导出记录"""
+        """添加数量信息到导出记录 - 增强版本"""
         quantity_fields = {
             # 快三相关
             '和值多码': ('号码数量', '投注内容'),
@@ -5791,9 +5804,9 @@ class Exporter:
             '不同号全包': ('号码数量', '投注内容'),
             '两面矛盾': (None, '投注内容'),
 
-            # PK10新增
-            '十个位置全投': ('投注位置数', '投注内容'),
-
+            # 多位置相同投注相关（新增）
+            '多位置相同投注': ('位置数量', '投注内容'),
+            '十个位置相同投注': ('位置数量', '投注内容'),
             
             # 六合彩相关
             '数字类多码': ('号码数量', '投注内容'),
@@ -5898,15 +5911,39 @@ class Exporter:
         
         if behavior_type in quantity_fields:
             count_field, content_field = quantity_fields[behavior_type]
+            
+            # 添加数量字段
             if count_field and count_field in record:
                 export_record[count_field] = record[count_field]
             
-            if content_field and record.get(content_field):
-                export_record[content_field] = str(record[content_field])
-            
-            # 添加位置信息（3D系列专用）
-            if record.get('位置'):
-                export_record['位置'] = record['位置']
+            # 添加投注内容字段
+            if content_field:
+                # 优先使用record中的投注内容，如果没有则尝试构建
+                if record.get(content_field):
+                    export_record[content_field] = str(record[content_field])
+                elif record.get('投注内容'):
+                    export_record[content_field] = str(record['投注内容'])
+                elif behavior_type in ['多位置相同投注', '十个位置相同投注']:
+                    # 对于多位置相同投注，构建投注内容
+                    if record.get('投注类型') and record.get('投注项'):
+                        if record['投注类型'] == '号码':
+                            export_record[content_field] = f"号码{record['投注项']}"
+                        else:
+                            export_record[content_field] = record['投注项']
+        
+        # 添加位置信息（3D系列专用）
+        if record.get('位置'):
+            export_record['位置'] = record['位置']
+        
+        # 确保投注内容字段一定存在
+        if '投注内容' not in export_record or not export_record['投注内容']:
+            if record.get('投注内容'):
+                export_record['投注内容'] = record['投注内容']
+            elif record.get('投注项'):
+                if record.get('投注类型') == '号码':
+                    export_record['投注内容'] = f"号码{record['投注项']}"
+                else:
+                    export_record['投注内容'] = record['投注项']
     
     def export_to_excel(self, account_summary, filename_prefix="彩票分析结果"):
         """导出分析结果到Excel文件"""
@@ -5919,6 +5956,25 @@ class Exporter:
             
             # 创建DataFrame
             df_export = pd.DataFrame(export_data)
+            
+            # 调试：显示导出数据的列和样本
+            logger.info(f"导出数据列: {df_export.columns.tolist()}")
+            logger.info(f"导出数据样例:")
+            logger.info(df_export.head())
+            
+            # 确保投注内容列存在
+            if '投注内容' not in df_export.columns:
+                st.warning("警告：导出数据中缺少'投注内容'列")
+                # 尝试从其他字段构建投注内容
+                if '投注项' in df_export.columns and '投注类型' in df_export.columns:
+                    def build_bet_content(row):
+                        if row['投注类型'] == '号码' and pd.notna(row['投注项']):
+                            return f"号码{row['投注项']}"
+                        elif pd.notna(row['投注项']):
+                            return row['投注项']
+                        return ''
+                    
+                    df_export['投注内容'] = df_export.apply(build_bet_content, axis=1)
             
             # 生成文件名
             timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
@@ -5934,6 +5990,10 @@ class Exporter:
             st.success(f"✅ 分析结果已成功导出到: {output_filename}")
             st.info(f"📊 导出内容包含 {len(export_data)} 条记录")
             
+            # 显示导出数据的预览
+            with st.expander("📋 导出数据预览", expanded=False):
+                st.dataframe(df_export.head(10))
+            
             # 提供下载
             with open(output_filename, "rb") as file:
                 btn = st.download_button(
@@ -5945,6 +6005,8 @@ class Exporter:
             
         except Exception as e:
             st.error(f"❌ 导出过程中出现错误: {str(e)}")
+            import traceback
+            logger.error(f"导出错误详情: {traceback.format_exc()}")
     
     def _create_summary_sheets(self, writer, account_summary, export_data):
         """创建统计工作表"""
