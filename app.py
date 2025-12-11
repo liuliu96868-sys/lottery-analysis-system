@@ -92,7 +92,8 @@ THRESHOLD_CONFIG = {
         'multi_number': 8,
         'gyh_multi_number': 12,
         'position_multi': 8,
-        'all_positions_bet': 10
+        'all_positions_bet': 10,
+        'same_number_multi_position': 7
     },
     'K3': {
         'multi_number': 5,
@@ -2203,7 +2204,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '冠亚和矛盾', record)
     
     def _analyze_pk10_number_plays(self, account, lottery, period, group, results):
-        """分析PK10号码类玩法 - 增强位置判断"""
+        """分析PK10号码类玩法 - 增强竖线格式支持"""
         number_categories = [
             '1-5名', '6-10名', '冠军', '前一', '亚军', '第三名', '第四名', '第五名',
             '第六名', '第七名', '第八名', '第九名', '第十名', '定位胆',
@@ -2241,7 +2242,29 @@ class AnalysisEngine:
                     numbers = self.data_analyzer.extract_numbers_from_content(bet, 1, 10, is_pk10=True)
                     all_numbers_by_position[position].update(numbers)
         
-        # 检查每个位置的超码（保持原有逻辑）
+        # 新增：统计同一个号码出现在不同位置的情况
+        number_to_positions = defaultdict(set)
+        for position, numbers in all_numbers_by_position.items():
+            for number in numbers:
+                number_to_positions[number].add(position)
+        
+        # 检查是否有号码出现在7个或以上位置
+        for number, positions in number_to_positions.items():
+            if len(positions) >= 7:  # 阈值可以根据需要调整
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': '多位置同号',
+                    '号码': number,
+                    '位置数量': len(positions),
+                    '出现位置': '、'.join(sorted(positions)),
+                    '投注内容': f"号码{number}在{len(positions)}个位置投注: {'、'.join(sorted(positions))}",
+                    '排序权重': self._calculate_sort_weight({'位置数量': len(positions)}, '多位置同号')
+                }
+                self._add_unique_result(results, '多位置同号', record)
+        
+        # 原有的检查每个位置的超码逻辑保持不变
         for position, numbers in all_numbers_by_position.items():
             if len(numbers) >= THRESHOLD_CONFIG['PK10']['multi_number']:
                 record = {
@@ -4948,7 +4971,8 @@ class ResultProcessor:
                 '独立玩法矛盾': '独立玩法矛盾',
                 '前一多码': '前一多码',
                 '龙虎矛盾': '龙虎矛盾',
-                '十个位置相同投注': '十个位置相同投注'
+                '十个位置相同投注': '十个位置相同投注',
+                '多位置同号': '同号多位置投注'
             },
             '快三': {
                 '和值多码': '和值多码',
@@ -5666,8 +5690,10 @@ def main():
     with st.sidebar.expander("PK拾系列阈值"):
         pk10_multi = st.slider("超码阈值", 5, 15, THRESHOLD_CONFIG['PK10']['multi_number'])
         pk10_gyh = st.slider("冠亚和多码阈值", 8, 20, THRESHOLD_CONFIG['PK10']['gyh_multi_number'])
+        pk10_same_number = st.slider("同号多位置阈值", 3, 10, 7)  # 新增
         THRESHOLD_CONFIG['PK10']['multi_number'] = pk10_multi
         THRESHOLD_CONFIG['PK10']['gyh_multi_number'] = pk10_gyh
+        THRESHOLD_CONFIG['PK10']['same_number_multi_position'] = pk10_same_number  # 新增
     
     with st.sidebar.expander("时时彩系列阈值"):
         ssc_dingwei = st.slider("定位胆多码阈值", 5, 15, THRESHOLD_CONFIG['SSC']['dingwei_multi'])
