@@ -2629,9 +2629,20 @@ class AnalysisEngine:
             if not bet_items:
                 continue
             
-            # 格式化投注项 - 排序并确保两位数字格式
+            # 展开嵌套列表（如果投注项是列表）
+            flattened_items = []
+            for item in bet_items:
+                if isinstance(item, list):
+                    flattened_items.extend(item)
+                else:
+                    flattened_items.append(item)
+            
+            # 去重和排序
+            unique_items = sorted(set(flattened_items))
+            
+            # 格式化投注项 - 确保两位数字格式
             formatted_items = []
-            for item in sorted(bet_items):
+            for item in unique_items:
                 if item_type == '号码':
                     # 确保是两位数字格式
                     if len(item) == 1:
@@ -2872,7 +2883,7 @@ class AnalysisEngine:
                             print(f"DEBUG _extract_all_bet_items_from_content: 分割投注项: {bet_subparts}")
                             
                             for bet_sub in bet_subparts:
-                                standardized_item = self._standardize_bet_item(bet_sub)
+                                standardized_item = self._standardize_single_bet_item(bet_sub)  # 使用新的方法
                                 print(f"DEBUG _extract_all_bet_items_from_content: 投注项 '{bet_sub}' -> 标准化: '{standardized_item}'")
                                 
                                 if standardized_item:
@@ -2880,7 +2891,7 @@ class AnalysisEngine:
                                     print(f"DEBUG _extract_all_bet_items_from_content: 添加 '{standardized_item}' 到位置 '{normalized_position}'")
                         else:
                             print(f"DEBUG _extract_all_bet_items_from_content: 单个投注项: '{bet_part}'")
-                            standardized_item = self._standardize_bet_item(bet_part)
+                            standardized_item = self._standardize_single_bet_item(bet_part)  # 使用新的方法
                             print(f"DEBUG _extract_all_bet_items_from_content: 投注项 '{bet_part}' -> 标准化: '{standardized_item}'")
                             
                             if standardized_item:
@@ -2959,7 +2970,31 @@ class AnalysisEngine:
         return bet_items
 
     def _standardize_bet_item(self, bet_item):
-        """标准化投注项 - 修复版本：保持两位数字格式"""
+        """标准化投注项 - 修复版本：正确处理多个号码"""
+        bet_item = str(bet_item).strip()
+        
+        if not bet_item:
+            return None
+        
+        # 首先检查是否是逗号分隔的多个号码
+        if ',' in bet_item:
+            # 分割并标准化每个号码
+            numbers = []
+            parts = bet_item.split(',')
+            for part in parts:
+                part_clean = part.strip()
+                if part_clean:
+                    standardized = self._standardize_single_bet_item(part_clean)
+                    if standardized:
+                        numbers.append(standardized)
+            # 返回所有号码的列表
+            return numbers if numbers else None
+        
+        # 单个投注项的处理
+        return self._standardize_single_bet_item(bet_item)
+    
+    def _standardize_single_bet_item(self, bet_item):
+        """标准化单个投注项"""
         bet_item = str(bet_item).strip()
         
         if not bet_item:
