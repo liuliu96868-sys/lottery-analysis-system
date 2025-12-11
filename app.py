@@ -2073,13 +2073,19 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
+            # 统一的投注项多位置检测（覆盖号码、大小、单双、龙虎）
+            self._analyze_pk10_bet_item_multiple_positions(account, lottery, period, group, results)
+            
+            # 原有的其他检测方法
             self._analyze_pk10_two_sides(account, lottery, period, group, results)
             self._analyze_pk10_gyh(account, lottery, period, group, results)
             self._analyze_pk10_number_plays(account, lottery, period, group, results)
             self._analyze_pk10_independent_plays(account, lottery, period, group, results)
             self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
             self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
-            self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
+            
+            # 移除原有的十个位置相同投注检测（已包含在统一检测中）
+            # self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
         
         return results
     
@@ -2242,27 +2248,28 @@ class AnalysisEngine:
                     numbers = self.data_analyzer.extract_numbers_from_content(bet, 1, 10, is_pk10=True)
                     all_numbers_by_position[position].update(numbers)
         
-        # 新增：统计同一个号码出现在不同位置的情况
-        number_to_positions = defaultdict(set)
-        for position, numbers in all_numbers_by_position.items():
-            for number in numbers:
-                number_to_positions[number].add(position)
+        # # 注释：原有的同一个号码多位置检测已移到统一检测方法中
+        # # 新增：统计同一个号码出现在不同位置的情况
+        # number_to_positions = defaultdict(set)
+        # for position, numbers in all_numbers_by_position.items():
+        #     for number in numbers:
+        #         number_to_positions[number].add(position)
         
-        # 检查是否有号码出现在7个或以上位置
-        for number, positions in number_to_positions.items():
-            if len(positions) >= 7:  # 阈值可以根据需要调整
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '多位置同号',
-                    '号码': number,
-                    '位置数量': len(positions),
-                    '出现位置': '、'.join(sorted(positions)),
-                    '投注内容': f"号码{number}在{len(positions)}个位置投注: {'、'.join(sorted(positions))}",
-                    '排序权重': self._calculate_sort_weight({'位置数量': len(positions)}, '多位置同号')
-                }
-                self._add_unique_result(results, '多位置同号', record)
+        # # 检查是否有号码出现在7个或以上位置
+        # for number, positions in number_to_positions.items():
+        #     if len(positions) >= 7:  # 阈值可以根据需要调整
+        #         record = {
+        #             '会员账号': account,
+        #             '彩种': lottery,
+        #             '期号': period,
+        #             '玩法分类': '多位置同号',
+        #             '号码': number,
+        #             '位置数量': len(positions),
+        #             '出现位置': '、'.join(sorted(positions)),
+        #             '投注内容': f"号码{number}在{len(positions)}个位置投注: {'、'.join(sorted(positions))}",
+        #             '排序权重': self._calculate_sort_weight({'位置数量': len(positions)}, '多位置同号')
+        #         }
+        #         self._add_unique_result(results, '多位置同号', record)
         
         # 原有的检查每个位置的超码逻辑保持不变
         for position, numbers in all_numbers_by_position.items():
@@ -2477,6 +2484,136 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
+
+    def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results):
+        """统一的多位置相同投注检测 - 覆盖号码、大小、单双、龙虎"""
+        
+        # 收集所有位置的投注项
+        position_bet_items = defaultdict(set)
+        
+        for _, row in group.iterrows():
+            content = str(row['内容'])
+            category = str(row['玩法分类'])
+            
+            # 解析投注内容，提取投注项
+            bet_items_by_position = self._extract_all_bet_items_from_content(content)
+            
+            for position, bet_items in bet_items_by_position.items():
+                if bet_items:
+                    # 标准化位置名称
+                    normalized_position = self.data_analyzer._normalize_pk10_position(position)
+                    if normalized_position:
+                        position_bet_items[normalized_position].update(bet_items)
+        
+        # 统计每个投注项出现的位置
+        bet_item_to_positions = defaultdict(set)
+        for position, bet_items in position_bet_items.items():
+            for bet_item in bet_items:
+                bet_item_to_positions[bet_item].add(position)
+        
+        # 检测阈值配置
+        MULTI_POSITION_THRESHOLD = 7  # 默认7个位置
+        
+        # 检查每个投注项
+        for bet_item, positions in bet_item_to_positions.items():
+            position_count = len(positions)
+            
+            if position_count >= MULTI_POSITION_THRESHOLD:
+                # 确定投注项类型
+                if bet_item.isdigit():
+                    item_type = '号码'
+                elif bet_item in ['大', '小']:
+                    item_type = '大小'
+                elif bet_item in ['单', '双']:
+                    item_type = '单双'
+                elif bet_item in ['龙', '虎']:
+                    item_type = '龙虎'
+                else:
+                    item_type = '投注项'
+                
+                # 生成投注内容描述
+                if position_count == 10:
+                    description = f"{item_type}{bet_item}在十个位置投注"
+                    result_key = '十个位置相同投注'
+                    play_category = f'十个位置相同{item_type}投注'
+                elif position_count >= 8:
+                    description = f"{item_type}{bet_item}在{position_count}个位置投注"
+                    result_key = '多位置相同投注'
+                    play_category = f'{position_count}个位置相同{item_type}投注'
+                else:
+                    description = f"{item_type}{bet_item}在{position_count}个位置投注"
+                    result_key = '多位置相同投注'
+                    play_category = f'{position_count}个位置相同{item_type}投注'
+                
+                record = {
+                    '会员账号': account,
+                    '彩种': lottery,
+                    '期号': period,
+                    '玩法分类': play_category,
+                    '投注项': bet_item,
+                    '投注类型': item_type,
+                    '位置数量': position_count,
+                    '出现位置': '、'.join(sorted(positions)),
+                    '投注内容': description,
+                    '排序权重': self._calculate_sort_weight({'位置数量': position_count}, result_key)
+                }
+                
+                self._add_unique_result(results, result_key, record)
+
+    def _extract_all_bet_items_from_content(self, content):
+        """从内容中提取所有类型的投注项（号码、大小、单双、龙虎）"""
+        content_str = str(content).strip()
+        bet_items_by_position = defaultdict(set)
+        
+        if not content_str:
+            return bet_items_by_position
+        
+        # 1. 尝试使用统一解析器解析
+        bets_by_position = ContentParser.parse_pk10_content(content_str)
+        
+        for position, bets in bets_by_position.items():
+            for bet in bets:
+                # 提取数字投注
+                numbers = self.data_analyzer.extract_numbers_from_content(bet, 1, 10, is_pk10=True)
+                for num in numbers:
+                    bet_items_by_position[position].add(str(num))
+                
+                # 提取大小单双
+                size_parity = self.data_analyzer.extract_size_parity_from_content(bet)
+                for item in size_parity:
+                    if item in ['大', '小', '单', '双']:
+                        bet_items_by_position[position].add(item)
+                
+                # 提取龙虎
+                dragon_tiger = self.data_analyzer.extract_dragon_tiger_from_content(bet)
+                for item in dragon_tiger:
+                    if item in ['龙', '虎']:
+                        bet_items_by_position[position].add(item)
+        
+        # 2. 如果没有解析到内容，尝试从原始内容中提取
+        if not any(bet_items_by_position.values()):
+            # 处理格式如"冠军-大,亚军-大"
+            if '-' in content_str:
+                parts = [part.strip() for part in content_str.split(',')]
+                
+                for part in parts:
+                    if '-' in part:
+                        try:
+                            position, bet_item = part.split('-', 1)
+                            position = self.data_analyzer._normalize_pk10_position(position)
+                            bet_item = bet_item.strip()
+                            
+                            if bet_item:
+                                # 检查是否是数字
+                                if bet_item.isdigit():
+                                    bet_items_by_position[position].add(bet_item)
+                                # 检查是否是大小单双龙虎
+                                elif bet_item in ['大', '小', '单', '双', '龙', '虎']:
+                                    bet_items_by_position[position].add(bet_item)
+                        except ValueError:
+                            continue
+        
+        return bet_items_by_position
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置投注完全相同内容的情况 - 严格版本"""
@@ -4972,7 +5109,7 @@ class ResultProcessor:
                 '前一多码': '前一多码',
                 '龙虎矛盾': '龙虎矛盾',
                 '十个位置相同投注': '十个位置相同投注',
-                '多位置同号': '同号多位置投注'
+                '多位置相同投注': '多位置相同投注'  # 新增
             },
             '快三': {
                 '和值多码': '和值多码',
