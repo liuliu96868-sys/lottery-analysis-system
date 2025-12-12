@@ -1983,11 +1983,23 @@ class AnalysisEngine:
         return hashlib.md5('|'.join(key_parts).encode()).hexdigest()
     
     def _add_unique_result(self, results, result_type, record):
-        """添加唯一的结果记录"""
+        """添加唯一的结果记录 - 修复版本：增加空值检查"""
+        if record is None:  # 跳过None记录
+            return False
+            
+        # 确保必要的字段存在
+        if not record.get('会员账号') or not record.get('彩种') or not record.get('期号'):
+            return False
+        
         record_hash = self._get_record_hash(record)
         
         if record_hash not in self.seen_records:
             self.seen_records.add(record_hash)
+            
+            # 确保results字典中有对应的result_type键
+            if result_type not in results:
+                results[result_type] = []
+            
             results[result_type].append(record)
             return True
         return False
@@ -2077,32 +2089,37 @@ class AnalysisEngine:
 
     # =============== PK10分析方法 ===============
     def analyze_pk10_patterns(self, df):
-        """分析PK拾/赛车系列投注模式"""
+        """分析PK拾/赛车系列投注模式 - 修复版本：增加错误处理"""
         results = defaultdict(list)
         
-        df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'PK10']
-        
-        if len(df_target) == 0:
+        try:
+            df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'PK10']
+            
+            if len(df_target) == 0:
+                return results
+            
+            grouped = df_target.groupby(['会员账号', '彩种', '期号'])
+            
+            for (account, lottery, period), group in grouped:
+                try:
+                    # 统一的投注项多位置检测（覆盖号码、大小、单双、龙虎）
+                    self._analyze_pk10_bet_item_multiple_positions(account, lottery, period, group, results)
+                    
+                    # 原有的其他检测方法
+                    self._analyze_pk10_two_sides(account, lottery, period, group, results)
+                    self._analyze_pk10_gyh(account, lottery, period, group, results)
+                    self._analyze_pk10_number_plays(account, lottery, period, group, results)
+                    self._analyze_pk10_independent_plays(account, lottery, period, group, results)
+                    self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
+                    self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
+                except Exception as e:
+                    logger.error(f"分析账户{account}期号{period}时出现错误: {str(e)}")
+                    continue  # 继续处理下一个组，避免一个账户出错影响整个分析
+            
             return results
-        
-        grouped = df_target.groupby(['会员账号', '彩种', '期号'])
-        
-        for (account, lottery, period), group in grouped:
-            # 统一的投注项多位置检测（覆盖号码、大小、单双、龙虎）
-            self._analyze_pk10_bet_item_multiple_positions(account, lottery, period, group, results)
-            
-            # 原有的其他检测方法
-            self._analyze_pk10_two_sides(account, lottery, period, group, results)
-            self._analyze_pk10_gyh(account, lottery, period, group, results)
-            self._analyze_pk10_number_plays(account, lottery, period, group, results)
-            self._analyze_pk10_independent_plays(account, lottery, period, group, results)
-            self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
-            self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
-            
-            # 移除原有的十个位置相同投注检测（已包含在统一检测中）
-            # self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
-        
-        return results
+        except Exception as e:
+            logger.error(f"分析PK10模式时出现错误: {str(e)}")
+            return results  # 返回可能已收集的部分结果
     
     def _analyze_pk10_two_sides(self, account, lottery, period, group, results):
         """分析PK10两面玩法"""
@@ -5565,7 +5582,7 @@ class ResultProcessor:
         self.displayed_records_cache = set()  # 缓存已显示的记录
     
     def organize_results_by_account(self, all_results):
-        """组织结果按账户分类"""
+        """组织结果按账户分类 - 修复版本：增加空值检查"""
         account_results = defaultdict(lambda: {
             'violations': [],
             'periods': set(),
@@ -5577,16 +5594,29 @@ class ResultProcessor:
         })
         
         for lottery_type, results in all_results.items():
+            if results is None:  # 跳过None结果
+                continue
+                
             for result_type, records in results.items():
+                if records is None:  # 跳过None记录列表
+                    continue
+                    
                 for record in records:
-                    account = record['会员账号']
-                    period = record['期号']
-                    lottery = record['彩种']
+                    if record is None:  # 跳过None记录
+                        continue
+                        
+                    account = record.get('会员账号')
+                    period = record.get('期号')
+                    lottery = record.get('彩种')
+                    
+                    # 确保关键字段不为空
+                    if not account or not period or not lottery:
+                        continue
                     
                     violation_record = {
                         '彩种': lottery,
                         '期号': period,
-                        '玩法分类': record['玩法分类'],
+                        '玩法分类': record.get('玩法分类', ''),
                         '违规类型': result_type,
                         '详细信息': self._get_violation_details(record, result_type),
                         '投注内容': record.get('投注内容', ''),
@@ -5685,46 +5715,55 @@ class ResultProcessor:
         return ' | '.join(details) if details else '无详情'
     
     def optimize_display_records(self, records, max_records=5):
-        """优化显示记录 - 增强去重逻辑"""
-        if not records:
-            return []
+        """优化显示记录 - 修复版本：确保不返回None"""
+        if not records or records is None:
+            return []  # 确保返回空列表而不是None
         
         # 重置缓存（每次调用时重新计算）
         self.displayed_records_cache = set()
         
-    def get_record_key(record):
-        """生成记录的唯一键 - 修复版本：确保不同号码有不同键"""
-        return (
-            record.get('会员账号', ''),
-            record.get('期号', ''),
-            record.get('玩法分类', ''),
-            record.get('位置', ''),
-            record.get('矛盾类型', ''),
-            record.get('投注项', ''),  # 新增：包含具体号码
-            record.get('投注类型', '')  # 新增：包含投注类型
-        )
+        def get_record_key(record):
+            """生成记录的唯一键 - 修复版本"""
+            return (
+                record.get('会员账号', ''),
+                record.get('期号', ''),
+                record.get('玩法分类', ''),
+                record.get('位置', ''),
+                record.get('矛盾类型', '')
+            )
         
-        # 去重并排序
-        unique_records = []
-        seen_keys = set()
-        
-        for record in records:
-            record_key = get_record_key(record)
-            if record_key not in seen_keys:
-                seen_keys.add(record_key)
-                unique_records.append(record)
-        
-        # 按排序权重排序
-        unique_records.sort(key=lambda x: x.get('排序权重', 0), reverse=True)
-        
-        # 对于龙虎矛盾，确保优先显示
-        dragon_tiger_records = [r for r in unique_records if '龙虎矛盾' in r.get('违规类型', '')]
-        other_records = [r for r in unique_records if '龙虎矛盾' not in r.get('违规类型', '')]
-        
-        # 优先显示龙虎矛盾记录
-        result_records = dragon_tiger_records + other_records
-        
-        return result_records[:max_records]
+        try:
+            # 去重并排序
+            unique_records = []
+            seen_keys = set()
+            
+            for record in records:
+                if record is None:  # 跳过None记录
+                    continue
+                record_key = get_record_key(record)
+                if record_key not in seen_keys:
+                    seen_keys.add(record_key)
+                    unique_records.append(record)
+            
+            # 按排序权重排序
+            unique_records.sort(key=lambda x: x.get('排序权重', 0), reverse=True)
+            
+            # 对于龙虎矛盾，确保优先显示
+            dragon_tiger_records = [r for r in unique_records if r is not None and '龙虎矛盾' in r.get('违规类型', '')]
+            other_records = [r for r in unique_records if r is not None and '龙虎矛盾' not in r.get('违规类型', '')]
+            
+            # 优先显示龙虎矛盾记录
+            result_records = dragon_tiger_records + other_records
+            
+            # 确保不超过最大记录数
+            result_records = result_records[:max_records]
+            
+            # 确保返回列表而不是None
+            return result_records if result_records is not None else []
+            
+        except Exception as e:
+            logger.error(f"优化显示记录失败: {str(e)}")
+            return []  # 发生异常时返回空列表
     
     def _ensure_variety_in_display(self, records, max_records=5):
         """确保展示的记录包含不同类型的矛盾"""
@@ -5770,7 +5809,19 @@ class ResultProcessor:
         return selected_records
     
     def create_summary_stats(self, account_results, df_clean):
-        """创建汇总统计 - 修改版本：只记录违规彩种"""
+        """创建汇总统计 - 修复版本：增加空值检查"""
+        if not account_results:
+            return {
+                '总记录数': len(df_clean),
+                '总会员数': df_clean['会员账号'].nunique(),
+                '彩种数量': df_clean['彩种'].nunique(),
+                '违规账户数': 0,
+                '总违规记录数': 0,
+                '违规类型统计': {},
+                '账户违规统计': [],
+                '账户违规彩种详情': {}
+            }
+        
         total_violations = sum(data['violation_count'] for data in account_results.values())
         
         summary = {
@@ -5781,12 +5832,16 @@ class ResultProcessor:
             '总违规记录数': total_violations,
             '违规类型统计': defaultdict(int),
             '账户违规统计': [],
-            '账户违规彩种详情': defaultdict(list)  # 修改：只存储违规彩种详情
+            '账户违规彩种详情': defaultdict(list)
         }
         
         for account, data in account_results.items():
+            if not data:  # 跳过空数据
+                continue
+                
             for violation_type in data['violation_types']:
-                summary['违规类型统计'][violation_type] += len(data['violations_by_type'][violation_type])
+                count = len(data['violations_by_type'].get(violation_type, []))
+                summary['违规类型统计'][violation_type] += count
             
             # 计算该账户在所有彩种的总投注期数
             total_periods = 0
@@ -5817,10 +5872,10 @@ class ResultProcessor:
             
             summary['账户违规统计'].append({
                 '账户': account,
-                '彩种投注期数': total_periods,  # 只计算违规彩种的注期数
+                '彩种投注期数': total_periods,
                 '违规次数': data['violation_count'],
                 '违规类型数': len(data['violation_types']),
-                '彩种数': len(violation_lotteries)  # 只计算违规彩种数
+                '彩种数': len(violation_lotteries)
             })
         
         summary['账户违规统计'] = sorted(summary['账户违规统计'], key=lambda x: x['违规次数'], reverse=True)
@@ -5874,7 +5929,7 @@ class ResultProcessor:
                 st.dataframe(display_df, hide_index=True, use_container_width=True)
     
     def display_account_results(self, account_results):
-        """显示账户结果"""
+        """显示账户结果 - 修复版本：增加空值检查"""
         if not account_results:
             st.info("🎉 未发现可疑投注行为")
             return
@@ -5897,7 +5952,7 @@ class ResultProcessor:
                     # 使用 data 中的 lottery_types
                     lottery_types_list = list(data['lottery_types'])
                     st.write(f"**涉及彩种:** {', '.join(lottery_types_list[:5])}{'...' if len(lottery_types_list) > 5 else ''}")
-
+    
                 with col2:
                     # 使用 data 中的 violation_types
                     violation_types_list = list(data['violation_types'])
@@ -5905,7 +5960,7 @@ class ResultProcessor:
                     if len(violation_types_list) > 5:
                         violation_text += f" 等{len(violation_types_list)}种"
                     st.write(f"**违规内容:** {violation_text}")
-
+    
                 with col3:
                     # 使用 data 中的 periods 和 violation_count
                     st.write(f"**违规期数:** {len(data['periods'])}")
@@ -5924,6 +5979,11 @@ class ResultProcessor:
                             
                             # 使用优化显示方法
                             representative_records = self.optimize_display_records(type_violations, max_records=5)
+                            
+                            # 确保representative_records不是None
+                            if representative_records is None:
+                                representative_records = []
+                            
                             other_records_count = len(type_violations) - len(representative_records)
                             
                             if representative_records:
@@ -5932,6 +5992,8 @@ class ResultProcessor:
                                 # 准备显示数据
                                 display_data = []
                                 for record in representative_records:
+                                    if record is None:  # 跳过None记录
+                                        continue
                                     display_record = {
                                         '期号': record['期号'],
                                         '玩法分类': record['玩法分类'],
@@ -5944,20 +6006,21 @@ class ResultProcessor:
                                         display_record['位置'] = record['位置']
                                     display_data.append(display_record)
                                 
-                                df_display = pd.DataFrame(display_data)
-                                container = st.container()
-                                with container:
-                                    st.dataframe(
-                                        df_display,
-                                        use_container_width=True,
-                                        hide_index=True,
-                                        height=min(300, len(representative_records) * 35 + 38)
-                                    )
-                                
-                                if other_records_count > 0:
-                                    st.info(f"还有 {other_records_count} 条相关记录...")
-                
-                st.markdown("---")
+                                if display_data:  # 确保有数据显示
+                                    df_display = pd.DataFrame(display_data)
+                                    container = st.container()
+                                    with container:
+                                        st.dataframe(
+                                            df_display,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                            height=min(300, len(representative_records) * 35 + 38)
+                                        )
+                                    
+                                    if other_records_count > 0:
+                                        st.info(f"还有 {other_records_count} 条相关记录...")
+                    
+                    st.markdown("---")
 
 # ==================== 导出功能 ====================
 class Exporter:
