@@ -5886,6 +5886,14 @@ class ResultProcessor:
         if not records:
             return []
         
+        # 调试：显示原始记录
+        logger.info(f"优化显示记录 - 原始记录数: {len(records)}")
+        
+        # 先合并同一期号的相同类型投注
+        merged_records = self.merge_same_period_violations(records)
+        
+        logger.info(f"优化显示记录 - 合并后记录数: {len(merged_records)}")
+        
         # 先合并同一期号的相同类型投注
         merged_records = self.merge_same_period_violations(records)
         
@@ -6175,7 +6183,7 @@ class Exporter:
                         export_record = {
                             '会员账号': account,
                             '彩种': lottery,
-                            '期号': period,
+                            '期号': record['期号'],  # 注意：从record中获取期号
                             '玩法分类': record['玩法分类'],
                             '违规类型': behavior_type,  # 使用 behavior_type 作为违规类型
                             '投注内容': record.get('投注内容', ''),
@@ -6335,15 +6343,11 @@ class Exporter:
                     export_record[content_field] = str(record['投注内容'])
                 elif behavior_type in ['多位置相同投注', '十个位置相同投注']:
                     # 对于多位置相同投注，构建投注内容
-                    if record.get('投注类型') and record.get('投注项'):
-                        if record['投注类型'] == '号码':
+                    if record.get('投注项'):
+                        if record.get('投注类型') == '号码':
                             export_record[content_field] = f"号码{record['投注项']}"
                         else:
                             export_record[content_field] = record['投注项']
-        
-        # 添加位置信息（3D系列专用）
-        if record.get('位置'):
-            export_record['位置'] = record['位置']
         
         # 确保投注内容字段一定存在
         if '投注内容' not in export_record or not export_record['投注内容']:
@@ -6453,13 +6457,6 @@ def main():
     
     st.sidebar.title("系统配置")
 
-    # 在main函数中添加
-    if st.sidebar.button("测试合并功能"):
-        result_processor = ResultProcessor()
-        merged = result_processor.test_merge_function()
-        st.write(f"测试结果: {len(merged)} 条记录")
-        st.json(merged[0] if merged else {})
-    
     uploaded_file = st.sidebar.file_uploader(
         "上传Excel文件", 
         type=['xlsx', 'xls'],
@@ -6659,57 +6656,6 @@ def main():
         **注意**: 请确保上传的Excel文件包含必要的列信息，系统会自动识别常见的列名变体。
         
         """)
-
-def test_merge_function(self):
-    """测试合并功能"""
-    test_records = [
-        {
-            '会员账号': 'test',
-            '期号': '1222706',
-            '玩法分类': '十个位置相同号码投注',
-            '违规类型': '十个位置相同投注',
-            '投注项': '1',
-            '投注类型': '号码',
-            '投注内容': '号码1',
-            '位置数量': 10,
-            '出现位置': '亚军、冠军、第七名、第三名、第九名、第五名、第八名、第六名、第十名、第四名',
-            '详细信息': '号码: 1 | 位置数量: 10'
-        },
-        {
-            '会员账号': 'test',
-            '期号': '1222706',
-            '玩法分类': '十个位置相同号码投注',
-            '违规类型': '十个位置相同投注',
-            '投注项': '4',
-            '投注类型': '号码',
-            '投注内容': '号码4',
-            '位置数量': 10,
-            '出现位置': '亚军、冠军、第七名、第三名、第九名、第五名、第八名、第六名、第十名、第四名',
-            '详细信息': '号码: 4 | 位置数量: 10'
-        },
-        {
-            '会员账号': 'test',
-            '期号': '1222706',
-            '玩法分类': '十个位置相同号码投注',
-            '违规类型': '十个位置相同投注',
-            '投注项': '5',
-            '投注类型': '号码',
-            '投注内容': '号码5',
-            '位置数量': 10,
-            '出现位置': '亚军、冠军、第七名、第三名、第九名、第五名、第八名、第六名、第十名、第四名',
-            '详细信息': '号码: 5 | 位置数量: 10'
-        }
-    ]
-    
-    merged = self.merge_same_period_violations(test_records)
-    print(f"原始记录数: {len(test_records)}")
-    print(f"合并后记录数: {len(merged)}")
-    if merged:
-        print(f"合并后投注项: {merged[0].get('投注项')}")
-        print(f"合并后投注内容: {merged[0].get('投注内容')}")
-        print(f"合并后详细信息: {merged[0].get('详细信息')}")
-    
-    return merged
 
 # 确保主函数被调用
 if __name__ == "__main__":
