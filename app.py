@@ -2500,7 +2500,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results):
-        """统一的多位置相同投注检测 - 修复版本：正确处理多个号码"""
+        """统一的多位置相同投注检测 - 修复版本：正确处理多个号码和变量定义"""
         
         # 收集所有位置的投注项
         position_bet_items = defaultdict(set)
@@ -2549,11 +2549,14 @@ class AnalysisEngine:
             for bet_item in bet_items:
                 bet_item_to_positions[bet_item].add(position)
         
+        # 检测阈值配置
+        MULTI_POSITION_THRESHOLD = 7  # 默认7个位置
+        
         # 检查每个投注项
         for bet_item, positions in bet_item_to_positions.items():
             position_count = len(positions)
             
-            if position_count >= 7:  # 默认7个位置
+            if position_count >= MULTI_POSITION_THRESHOLD:
                 # 确定投注项类型
                 if bet_item.isdigit():
                     item_type = '号码'
@@ -2566,6 +2569,12 @@ class AnalysisEngine:
                 else:
                     item_type = '投注项'
                 
+                # 初始化变量
+                play_category = ""
+                details = ""
+                bet_content = ""
+                result_key = ""
+                
                 # 生成投注内容描述
                 if position_count == 10:
                     result_key = '十个位置相同投注'
@@ -2573,14 +2582,52 @@ class AnalysisEngine:
                         play_category = f'十个位置相同号码投注'
                         details = f'号码{bet_item}在十个位置投注'
                         bet_content = f'号码{bet_item}'
-                    # ... 其他类型处理 ...
+                    elif item_type == '大小':
+                        play_category = f'十个位置相同大小投注'
+                        details = f'大小{bet_item}在十个位置投注'
+                        bet_content = f'{bet_item}'
+                    elif item_type == '单双':
+                        play_category = f'十个位置相同单双投注'
+                        details = f'单双{bet_item}在十个位置投注'
+                        bet_content = f'{bet_item}'
+                    elif item_type == '龙虎':
+                        play_category = f'十个位置相同龙虎投注'
+                        details = f'龙虎{bet_item}在十个位置投注'
+                        bet_content = f'{bet_item}'
+                    else:
+                        play_category = f'十个位置相同{item_type}投注'
+                        details = f'{item_type}{bet_item}在十个位置投注'
+                        bet_content = f'{bet_item}'
                 else:
                     result_key = '多位置相同投注'
                     if item_type == '号码':
                         play_category = f'{position_count}个位置相同号码投注'
                         details = f'号码{bet_item}在{position_count}个位置投注'
                         bet_content = f'号码{bet_item}'
-                    # ... 其他类型处理 ...
+                    elif item_type == '大小':
+                        play_category = f'{position_count}个位置相同大小投注'
+                        details = f'大小{bet_item}在{position_count}个位置投注'
+                        bet_content = f'{bet_item}'
+                    elif item_type == '单双':
+                        play_category = f'{position_count}个位置相同单双投注'
+                        details = f'单双{bet_item}在{position_count}个位置投注'
+                        bet_content = f'{bet_item}'
+                    elif item_type == '龙虎':
+                        play_category = f'{position_count}个位置相同龙虎投注'
+                        details = f'龙虎{bet_item}在{position_count}个位置投注'
+                        bet_content = f'{bet_item}'
+                    else:
+                        play_category = f'{position_count}个位置相同{item_type}投注'
+                        details = f'{item_type}{bet_item}在{position_count}个位置投注'
+                        bet_content = f'{bet_item}'
+                
+                # 确保所有变量都已定义
+                if not play_category:
+                    play_category = f'{position_count}个位置相同投注'
+                if not details:
+                    details = f'投注项{bet_item}在{position_count}个位置投注'
+                if not bet_content:
+                    bet_content = f'{bet_item}'
                 
                 record = {
                     '会员账号': account,
@@ -2614,8 +2661,6 @@ class AnalysisEngine:
         # 处理格式：第三名-01,04,05,第五名-01,04,05,亚军-01,04,05,第四名-01,04,05,冠军-01,04,05
         parts = [part.strip() for part in content_str.split(',')]
         
-        current_position = None
-        
         for part in parts:
             if not part:
                 continue
@@ -2632,20 +2677,19 @@ class AnalysisEngine:
                     if not normalized_position:
                         continue
                     
-                    current_position = normalized_position
-                    
-                    # 提取所有号码
+                    # 使用新的方法提取所有号码
                     numbers = self._extract_multiple_numbers_from_bet_item(bet_part)
                     for number in numbers:
                         bets_by_position[normalized_position].add(number)
                             
                 except ValueError:
                     continue
-            elif current_position:
-                # 这是同一个位置的后续号码（如"04"或"05"）
+            else:
+                # 可能是单独的投注项，需要从内容推断位置
                 numbers = self._extract_multiple_numbers_from_bet_item(part)
                 for number in numbers:
-                    bets_by_position[current_position].add(number)
+                    # 如果没有明确位置，暂时不处理
+                    pass
         
         return bets_by_position
     
@@ -2815,7 +2859,7 @@ class AnalysisEngine:
         return bet_items
 
     def _standardize_bet_item(self, bet_item):
-        """标准化投注项 - 完整修复版本：支持逗号分隔的多个号码"""
+        """标准化投注项 - 修复版本：支持逗号分隔的多个号码"""
         bet_item = str(bet_item).strip()
         
         if not bet_item:
@@ -2840,11 +2884,9 @@ class AnalysisEngine:
             if 1 <= num <= 10:
                 return str(num)  # 去掉前导0
         
-        # 检查是否是逗号分隔的多个数字
+        # 对于逗号分隔的多个数字，我们只返回第一个（保持向后兼容）
+        # 注意：这个方法主要在其他地方使用，对于多个号码的情况，应该使用_extract_multiple_numbers_from_bet_item
         if ',' in bet_item:
-            # 对于逗号分隔的多个数字，我们需要提取所有数字
-            # 但这个方法应该返回单个投注项，所以我们需要调用者做特殊处理
-            # 这里先提取第一个数字（保持向后兼容）
             parts = bet_item.split(',')
             first_part = parts[0].strip()
             if first_part.isdigit():
