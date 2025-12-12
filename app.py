@@ -1061,7 +1061,7 @@ class DataAnalyzer:
         return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
     
     def extract_numbers_from_content(self, content, min_num=0, max_num=49, is_pk10=False):
-        """从内容中提取数字 - 增强三军格式处理"""
+        """从内容中提取数字 - 增强逗号分隔多号码处理"""
         numbers = []
         content_str = str(content)
         
@@ -1073,11 +1073,30 @@ class DataAnalyzer:
                 numbers = [num for num in numbers if min_num <= num <= max_num]
                 return list(set(numbers))
             
+            # 处理常规逗号分隔的数字格式：01,04,05
+            if ',' in content_str:
+                # 提取所有数字部分
+                parts = [p.strip() for p in content_str.split(',')]
+                for part in parts:
+                    # 检查是否是纯数字
+                    if part.isdigit():
+                        num = int(part)
+                        if min_num <= num <= max_num:
+                            numbers.append(num)
+                    # 检查是否包含非数字字符（如"冠军-01"）
+                    elif re.search(r'\d{1,2}', part):
+                        # 提取数字部分
+                        num_matches = re.findall(r'\d{1,2}', part)
+                        for match in num_matches:
+                            num = int(match)
+                            if min_num <= num <= max_num:
+                                numbers.append(num)
+            
             if is_pk10:
                 # PK拾/赛车特殊处理：过滤掉"第X名"等玩法描述
                 content_str = re.sub(r'第\d+名-?', '', content_str)
             
-            # 提取数字
+            # 常规数字提取（处理单个数字）
             number_matches = re.findall(r'\b\d{1,2}\b', content_str)
             for match in number_matches:
                 num = int(match)
@@ -1256,7 +1275,7 @@ class DataAnalyzer:
         return result
     
     def parse_pk10_number_content(self, content):
-        """解析PK10号码类玩法内容 - 增强竖线格式支持"""
+        """解析PK10号码类玩法内容 - 增强逗号分隔多号码支持"""
         content_str = str(content)
         numbers_by_position = defaultdict(list)
         
@@ -1266,8 +1285,50 @@ class DataAnalyzer:
             if any(vertical_result.values()):
                 return vertical_result
         
+        # 处理"位置-号码1,号码2,号码3"格式
+        if '-' in content_str and re.search(r'\d{2}', content_str):
+            # 先按逗号分割，再处理每个部分
+            parts = [part.strip() for part in content_str.split(',')]
+            current_position = None
+            
+            for part in parts:
+                if '-' in part:
+                    try:
+                        position_part, numbers_str = part.split('-', 1)
+                        current_position = position_part.strip()
+                        numbers_str = numbers_str.strip()
+                        
+                        # 标准化位置
+                        position = self._normalize_pk10_position(current_position)
+                        if not position:
+                            continue
+                        
+                        # 提取数字（可能是单个或多个逗号分隔）
+                        numbers = []
+                        if ',' in numbers_str:
+                            # 逗号分隔的多个数字
+                            num_parts = numbers_str.split(',')
+                            for num_part in num_parts:
+                                if num_part.strip().isdigit():
+                                    numbers.append(int(num_part.strip()))
+                        else:
+                            # 单个数字
+                            if numbers_str.isdigit():
+                                numbers.append(int(numbers_str))
+                        
+                        # 添加到对应位置
+                        numbers_by_position[position].extend(numbers)
+                        
+                    except ValueError:
+                        continue
+                elif current_position:
+                    # 属于当前位置的投注项（数字部分）
+                    position = self._normalize_pk10_position(current_position)
+                    if position and part.strip().isdigit():
+                        numbers_by_position[position].append(int(part.strip()))
+        
         # 处理竖线分隔的格式：01,02,03,04,05|07,08,06,09,10|...
-        if '|' in content_str and re.search(r'\d{2}', content_str):
+        elif '|' in content_str and re.search(r'\d{2}', content_str):
             positions = ['冠军', '亚军', '第三名', '第四名', '第五名']
             parts = content_str.split('|')
             
@@ -1296,16 +1357,6 @@ class DataAnalyzer:
                         if position:
                             numbers = re.findall(r'\d{2}', numbers_str)
                             numbers_by_position[position].extend([int(num) for num in numbers])
-        
-        # 处理冠军-01,02,03格式
-        elif '-' in content_str and re.search(r'\d{2}', content_str):
-            parts = content_str.split(',')
-            for part in parts:
-                if '-' in part:
-                    position, numbers_str = part.split('-', 1)
-                    position = self._normalize_pk10_position(position)
-                    numbers = re.findall(r'\d{2}', numbers_str)
-                    numbers_by_position[position].extend([int(num) for num in numbers])
         
         # 处理纯数字格式
         else:
@@ -2500,7 +2551,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results):
-        """统一的多位置相同投注检测 - 修复版本：准确识别实际投注位置"""
+        """统一的多位置相同投注检测 - 增强逗号分隔多号码支持"""
         
         # 收集所有位置的投注项
         position_bet_items = defaultdict(set)
@@ -2509,11 +2560,10 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
-            # 修复：对于"1-5名"和"6-10名"，需要解析内容中的实际位置，而不是假设所有位置
+            # 修复：对于"1-5名"和"6-10名"，需要解析内容中的实际位置和多个号码
             if category in ['1-5名', '1~5名', '1-5', '1~5', '1-5名定位胆']:
-                # 1-5名对应冠军、亚军、第三名、第四名、第五名
-                # 但需要从内容中解析实际投注了哪些位置
-                bets_by_position = self._parse_1_5_content_detailed(content)
+                # 解析1-5名投注内容（使用增强版）
+                bets_by_position = self._parse_1_5_content_detailed_enhanced(content)
                 
                 for position, bet_items in bets_by_position.items():
                     if bet_items:
@@ -2523,9 +2573,8 @@ class AnalysisEngine:
                             position_bet_items[normalized_position].update(bet_items)
                             
             elif category in ['6-10名', '6~10名', '6-10', '6~10', '6-10名定位胆']:
-                # 6-10名对应第六名、第七名、第八名、第九名、第十名
-                # 但需要从内容中解析实际投注了哪些位置
-                bets_by_position = self._parse_6_10_content_detailed(content)
+                # 解析6-10名投注内容（使用增强版）
+                bets_by_position = self._parse_6_10_content_detailed_enhanced(content)
                 
                 for position, bet_items in bets_by_position.items():
                     if bet_items:
@@ -2535,8 +2584,8 @@ class AnalysisEngine:
                             position_bet_items[normalized_position].update(bet_items)
                             
             else:
-                # 解析其他投注内容，提取投注项
-                bet_items_by_position = self._extract_all_bet_items_from_content(content)
+                # 解析其他投注内容，提取投注项（增强多号码支持）
+                bet_items_by_position = self._extract_all_bet_items_from_content_enhanced(content)
                 
                 for position, bet_items in bet_items_by_position.items():
                     if bet_items:
@@ -2627,7 +2676,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, result_key, record)
     
     def _parse_1_5_content_detailed(self, content):
-        """详细解析1-5名投注内容 - 修复版本：准确识别实际投注位置"""
+        """详细解析1-5名投注内容 - 增强逗号分隔多号码支持"""
         content_str = str(content).strip()
         bets_by_position = defaultdict(set)
         
@@ -2638,53 +2687,41 @@ class AnalysisEngine:
         if '投注：' in content_str:
             content_str = content_str.split('投注：')[0].strip()
         
-        # 处理格式：第三名-07,冠军-07,第四名-07,第五名-07,亚军-07
-        parts = [part.strip() for part in content_str.split(',')]
+        # 使用统一的逗号分隔多号码解析
+        parts = [p.strip() for p in content_str.split(',')]
+        current_position = None
         
         for part in parts:
             if not part:
                 continue
-                
-            # 如果包含"-"，说明是位置-投注项格式
+            
+            # 检查是否包含位置信息
             if '-' in part:
                 try:
                     position_part, bet_part = part.split('-', 1)
-                    position_part = position_part.strip()
+                    current_position = position_part.strip()
                     bet_part = bet_part.strip()
                     
                     # 标准化位置
-                    normalized_position = self.data_analyzer._normalize_pk10_position(position_part)
+                    normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
                     if not normalized_position:
                         continue
                     
-                    # 检查投注部分是否包含逗号（多个投注项）
-                    if ',' in bet_part:
-                        bet_subparts = [b.strip() for b in bet_part.split(',')]
-                        for bet_item in bet_subparts:
-                            standardized_item = self._standardize_bet_item(bet_item)
-                            if standardized_item:
-                                bets_by_position[normalized_position].add(standardized_item)
-                    else:
-                        standardized_item = self._standardize_bet_item(bet_part)
-                        if standardized_item:
-                            bets_by_position[normalized_position].add(standardized_item)
-                            
+                    # 提取投注项
+                    self._extract_bet_items_from_part_enhanced(bet_part, bets_by_position, normalized_position)
+                    
                 except ValueError:
                     continue
-            else:
-                # 可能是单独的投注项，需要从内容推断位置
-                # 这种情况下，投注项可能对应所有1-5名位置，需要特别处理
-                standardized_item = self._standardize_bet_item(part)
-                if standardized_item:
-                    # 如果没有明确位置，假设投注了所有5个位置（这是保守估计）
-                    # 但更好的做法是从玩法分类推断，这里暂时保守处理
-                    # 实际中这种情况较少，如果有问题需要进一步分析
-                    pass
+            elif current_position:
+                # 属于当前位置的投注项
+                normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                if normalized_position:
+                    self._extract_bet_items_from_part_enhanced(part, bets_by_position, normalized_position)
         
         return bets_by_position
     
     def _parse_6_10_content_detailed(self, content):
-        """详细解析6-10名投注内容 - 修复版本：准确识别实际投注位置"""
+        """详细解析6-10名投注内容 - 增强逗号分隔多号码支持"""
         content_str = str(content).strip()
         bets_by_position = defaultdict(set)
         
@@ -2695,50 +2732,151 @@ class AnalysisEngine:
         if '投注：' in content_str:
             content_str = content_str.split('投注：')[0].strip()
         
-        # 处理格式：第七名-08,第八名-08,第九名-08,第六名-08,第十名-08
-        parts = [part.strip() for part in content_str.split(',')]
+        # 使用统一的逗号分隔多号码解析
+        parts = [p.strip() for p in content_str.split(',')]
+        current_position = None
         
         for part in parts:
             if not part:
                 continue
-                
-            # 如果包含"-"，说明是位置-投注项格式
+            
+            # 检查是否包含位置信息
             if '-' in part:
                 try:
                     position_part, bet_part = part.split('-', 1)
-                    position_part = position_part.strip()
+                    current_position = position_part.strip()
                     bet_part = bet_part.strip()
                     
                     # 标准化位置
-                    normalized_position = self.data_analyzer._normalize_pk10_position(position_part)
+                    normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
                     if not normalized_position:
                         continue
                     
-                    # 检查投注部分是否包含逗号（多个投注项）
-                    if ',' in bet_part:
-                        bet_subparts = [b.strip() for b in bet_part.split(',')]
-                        for bet_item in bet_subparts:
-                            standardized_item = self._standardize_bet_item(bet_item)
-                            if standardized_item:
-                                bets_by_position[normalized_position].add(standardized_item)
-                    else:
-                        standardized_item = self._standardize_bet_item(bet_part)
-                        if standardized_item:
-                            bets_by_position[normalized_position].add(standardized_item)
-                            
+                    # 提取投注项
+                    self._extract_bet_items_from_part_enhanced(bet_part, bets_by_position, normalized_position)
+                    
                 except ValueError:
                     continue
-            else:
-                # 可能是单独的投注项
-                standardized_item = self._standardize_bet_item(part)
+            elif current_position:
+                # 属于当前位置的投注项
+                normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                if normalized_position:
+                    self._extract_bet_items_from_part_enhanced(part, bets_by_position, normalized_position)
+        
+        return bets_by_position
+
+    def _extract_bet_items_from_part_enhanced(self, bet_part, bets_by_position, position):
+        """从投注部分提取投注项（增强多号码支持）"""
+        bet_part = bet_part.strip()
+        
+        if not bet_part:
+            return
+        
+        # 处理逗号分隔的多个投注项
+        if ',' in bet_part:
+            sub_parts = [p.strip() for p in bet_part.split(',')]
+            for sub_part in sub_parts:
+                standardized_item = self._standardize_bet_item(sub_part)
                 if standardized_item:
-                    # 类似1-5名处理，暂时保守处理
-                    pass
+                    bets_by_position[position].add(standardized_item)
+        else:
+            # 单个投注项
+            standardized_item = self._standardize_bet_item(bet_part)
+            if standardized_item:
+                bets_by_position[position].add(standardized_item)
+
+    def _parse_1_5_content_detailed_enhanced(self, content):
+        """增强解析1-5名投注内容 - 完整支持逗号分隔多号码"""
+        content_str = str(content).strip()
+        bets_by_position = defaultdict(set)
+        
+        if not content_str:
+            return bets_by_position
+        
+        # 移除金额信息
+        if '投注：' in content_str:
+            content_str = content_str.split('投注：')[0].strip()
+        
+        # 使用统一的逗号分隔多号码解析
+        parts = [p.strip() for p in content_str.split(',')]
+        current_position = None
+        
+        for part in parts:
+            if not part:
+                continue
+            
+            # 检查是否包含位置信息
+            if '-' in part:
+                try:
+                    position_part, bet_part = part.split('-', 1)
+                    current_position = position_part.strip()
+                    bet_part = bet_part.strip()
+                    
+                    # 标准化位置
+                    normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                    if not normalized_position:
+                        continue
+                    
+                    # 提取投注项
+                    self._extract_bet_items_from_part_enhanced(bet_part, bets_by_position, normalized_position)
+                    
+                except ValueError:
+                    continue
+            elif current_position:
+                # 属于当前位置的投注项
+                normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                if normalized_position:
+                    self._extract_bet_items_from_part_enhanced(part, bets_by_position, normalized_position)
+        
+        return bets_by_position
+    
+    def _parse_6_10_content_detailed_enhanced(self, content):
+        """增强解析6-10名投注内容 - 完整支持逗号分隔多号码"""
+        content_str = str(content).strip()
+        bets_by_position = defaultdict(set)
+        
+        if not content_str:
+            return bets_by_position
+        
+        # 移除金额信息
+        if '投注：' in content_str:
+            content_str = content_str.split('投注：')[0].strip()
+        
+        # 使用统一的逗号分隔多号码解析
+        parts = [p.strip() for p in content_str.split(',')]
+        current_position = None
+        
+        for part in parts:
+            if not part:
+                continue
+            
+            # 检查是否包含位置信息
+            if '-' in part:
+                try:
+                    position_part, bet_part = part.split('-', 1)
+                    current_position = position_part.strip()
+                    bet_part = bet_part.strip()
+                    
+                    # 标准化位置
+                    normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                    if not normalized_position:
+                        continue
+                    
+                    # 提取投注项
+                    self._extract_bet_items_from_part_enhanced(bet_part, bets_by_position, normalized_position)
+                    
+                except ValueError:
+                    continue
+            elif current_position:
+                # 属于当前位置的投注项
+                normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                if normalized_position:
+                    self._extract_bet_items_from_part_enhanced(part, bets_by_position, normalized_position)
         
         return bets_by_position
 
     def _extract_all_bet_items_from_content(self, content):
-        """从内容中提取所有类型的投注项（号码、大小、单双、龙虎）- 修复版本"""
+        """从内容中提取所有类型的投注项（号码、大小、单双、龙虎）- 增强逗号分隔多号码支持"""
         content_str = str(content).strip()
         bets_by_position = defaultdict(set)
         
@@ -2764,41 +2902,80 @@ class AnalysisEngine:
                     if not part_clean or part_clean == '_' or part_clean == '':
                         continue
                     
-                    # 提取数字
-                    numbers = re.findall(r'\b\d{1,2}\b', part_clean)
+                    # 提取数字（包括逗号分隔的多个数字）
+                    numbers = []
+                    if ',' in part_clean:
+                        # 逗号分隔的多个数字
+                        number_strs = part_clean.split(',')
+                        for num_str in number_strs:
+                            num_clean = num_str.strip()
+                            if num_clean.isdigit():
+                                numbers.append(int(num_clean))
+                    else:
+                        # 单个数字
+                        if part_clean.isdigit():
+                            numbers.append(int(part_clean))
+                    
+                    # 记录数字投注项
                     for num in numbers:
-                        standardized_item = self._standardize_bet_item(num)
+                        standardized_item = self._standardize_bet_item(str(num))
                         if standardized_item:
                             bets_by_position[position].add(standardized_item)
         
-        # 检查是否为"位置-号码"格式
+        # 检查是否为"位置-号码"格式（包含逗号分隔的多个号码）
         elif '-' in content_str and not any(x in content_str for x in ['投注：', '抵用：', '中奖：']):
+            # 修复：处理多个逗号分隔的号码
             parts = content_str.split(',')
+            current_position = None
+            
             for part in parts:
                 part_clean = part.strip()
+                
                 if '-' in part_clean:
                     try:
                         position_part, bet_part = part_clean.split('-', 1)
-                        position_part = position_part.strip()
+                        current_position = position_part.strip()
                         bet_part = bet_part.strip()
                         
                         # 标准化位置
-                        normalized_position = self.data_analyzer._normalize_pk10_position(position_part)
+                        normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
                         if not normalized_position:
                             continue
                         
-                        # 标准化投注项
-                        standardized_item = self._standardize_bet_item(bet_part)
-                        if standardized_item:
-                            bets_by_position[normalized_position].add(standardized_item)
+                        # 处理投注部分（可能包含逗号分隔的多个数字）
+                        self._extract_numbers_from_bet_part(bet_part, bets_by_position, normalized_position)
+                        
                     except ValueError:
                         continue
-                elif part_clean.isdigit() or part_clean in ['大', '小', '单', '双', '龙', '虎']:
-                    # 可能是单独的投注项，但没有位置信息
-                    # 这种情况下需要从上下文推断位置，暂时跳过
-                    pass
+                elif current_position:
+                    # 没有位置信息，但有当前上下文位置，则视为当前位置的投注项
+                    normalized_position = self.data_analyzer._normalize_pk10_position(current_position)
+                    if normalized_position:
+                        # 处理可能是数字的情况
+                        self._extract_numbers_from_bet_part(part_clean, bets_by_position, normalized_position)
         
         return bets_by_position
+    
+    def _extract_numbers_from_bet_part(self, bet_part, bets_by_position, position):
+        """从投注部分提取数字并添加到指定位置"""
+        bet_part = bet_part.strip()
+        
+        if not bet_part:
+            return
+        
+        # 处理逗号分隔的多个数字
+        if ',' in bet_part:
+            number_strs = bet_part.split(',')
+            for num_str in number_strs:
+                num_clean = num_str.strip()
+                standardized_item = self._standardize_bet_item(num_clean)
+                if standardized_item:
+                    bets_by_position[position].add(standardized_item)
+        else:
+            # 单个数字
+            standardized_item = self._standardize_bet_item(bet_part)
+            if standardized_item:
+                bets_by_position[position].add(standardized_item)
 
     def _extract_bet_items_from_1_5_content(self, content):
         """从1-5名或6-10名的投注内容中提取投注项"""
