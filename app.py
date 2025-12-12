@@ -2585,7 +2585,7 @@ class AnalysisEngine:
                             
             else:
                 # 解析其他投注内容，提取投注项（增强多号码支持）
-                bet_items_by_position = self._extract_all_bet_items_from_content_enhanced(content)
+                bet_items_by_position = self._extract_all_bet_items_from_content(content)
                 
                 for position, bet_items in bet_items_by_position.items():
                     if bet_items:
