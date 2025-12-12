@@ -467,587 +467,552 @@ class DataProcessor:
         
         return text
 
-# ==================== 内容解析器 ====================
-class ContentParser:
-    """统一的投注内容解析器"""
-
-    @staticmethod
-    def parse_pk10_vertical_format(content):
-        """
-        解析PK10竖线分隔的定位胆格式
-        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
-        或者：_|05|_|_|_ 表示只有第二个位置有投注
-        """
-        try:
-            content_str = str(content).strip()
-            bets_by_position = defaultdict(list)
-            
-            if not content_str:
-                return bets_by_position
-            
-            # 定义位置映射 - 修正重复的位置
-            positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
-                        '第六名', '第七名', '第八名', '第九名', '第十名']
-            
-            # 按竖线分割
-            parts = content_str.split('|')
-            
-            for i, part in enumerate(parts):
-                if i < len(positions):
-                    position = positions[i]
-                    part_clean = part.strip()
-                    
-                    # 跳过空位或下划线
-                    if not part_clean or part_clean == '_' or part_clean == '':
-                        continue
-                    
-                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                    numbers = []
-                    if ',' in part_clean:
-                        # 逗号分隔的多个数字
-                        number_strs = part_clean.split(',')
-                        for num_str in number_strs:
-                            num_clean = num_str.strip()
-                            if num_clean.isdigit():
-                                numbers.append(int(num_clean))
-                    else:
-                        # 单个数字 - 修复：使用part_clean
-                        if part_clean.isdigit():
-                            numbers.append(int(part_clean))
-                    
-                    # 添加到对应位置
-                    bets_by_position[position].extend(numbers)
-            
-            return bets_by_position
-        except Exception as e:
-            logger.warning(f"解析PK10竖线格式失败: {content}, 错误: {str(e)}")
-            return defaultdict(list)
+# ==================== 统一内容解析引擎 ====================
+class UnifiedContentParser:
+    """
+    完整的统一内容解析引擎
+    整合所有彩票类型的解析逻辑，提供统一的接口和数据结构
+    """
     
-    @staticmethod
-    def parse_ssc_vertical_format(content):
+    def __init__(self):
+        # 缓存解析结果，提高性能
+        self.cache = {}
+        # 各彩种配置
+        self.configs = LOTTERY_CONFIGS
+        # 初始化辅助解析器
+        self.content_parser = ContentParser()  # 原有的ContentParser
+        self.enhanced_parser = EnhancedContentParser()  # 原有的EnhancedContentParser
+        
+    def parse(self, content, lottery_type, play_category=''):
         """
-        解析时时彩竖线分隔的定位胆格式
-        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
-        或者：_|05|_|_|_ 表示只有第二个位置有投注
+        统一解析入口 - 解析所有彩票类型的投注内容
+        
+        Args:
+            content: 投注内容字符串
+            lottery_type: 彩种类型 ('PK10', 'LHC', 'SSC', '3D', 'K3', 'THREE_COLOR')
+            play_category: 玩法分类
+            
+        Returns:
+            统一格式的解析结果字典
         """
+        # 生成缓存键
+        content_str = str(content).strip()
+        cache_key = f"{content_str}|{lottery_type}|{play_category}"
+        
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        
+        # 创建基础结果结构
+        result = self._create_empty_result(content_str, lottery_type, play_category)
+        
         try:
-            content_str = str(content).strip()
-            bets_by_position = defaultdict(list)
+            # 首先使用EnhancedContentParser识别玩法和位置
+            play_method, position, clean_content = self.enhanced_parser.extract_play_method_and_position(
+                content_str, lottery_type
+            )
+            result['play_method'] = play_method
+            result['position'] = position
+            result['clean_content'] = clean_content
             
-            if not content_str:
-                return bets_by_position
-            
-            # 定义位置映射
-            positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
-            
-            # 按竖线分割
-            parts = content_str.split('|')
-            
-            for i, part in enumerate(parts):
-                if i < len(positions):
-                    position = positions[i]
-                    part_clean = part.strip()
-                    
-                    # 跳过空位或下划线
-                    if not part_clean or part_clean == '_' or part_clean == '':
-                        continue
-                    
-                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                    numbers = []
-                    if ',' in part_clean:
-                        # 逗号分隔的多个数字
-                        number_strs = part_clean.split(',')
-                        for num_str in number_strs:
-                            num_clean = num_str.strip()
-                            if num_clean.isdigit():
-                                numbers.append(int(num_clean))
-                    else:
-                        # 单个数字 - 修复：使用part_clean
-                        if part_clean.isdigit():
-                            numbers.append(int(part_clean))
-                    
-                    # 添加到对应位置
-                    bets_by_position[position].extend(numbers)
-            
-            return bets_by_position
-        except Exception as e:
-            logger.warning(f"解析时时彩竖线格式失败: {content}, 错误: {str(e)}")
-            return defaultdict(list)
-
-    @staticmethod
-    def parse_ssc_vertical_format(content):
-        """
-        解析时时彩竖线分隔的定位胆格式
-        格式：号码1,号码2|号码3|号码4,号码5|号码6|号码7,号码8,号码9|号码10
-        或者：_|05|_|_|_ 表示只有第二个位置有投注
-        """
-        content_str = str(content).strip()
-        bets_by_position = defaultdict(list)
-        
-        if not content_str:
-            return bets_by_position
-        
-        # 定义位置映射
-        positions = ['第1球', '第2球', '第3球', '第4球', '第5球']
-        
-        # 按竖线分割
-        parts = content_str.split('|')
-        
-        for i, part in enumerate(parts):
-            if i < len(positions):
-                position = positions[i]
-                part_clean = part.strip()
-                
-                # 跳过空位或下划线
-                if not part_clean or part_clean == '_' or part_clean == '':
-                    continue
-                
-                # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                numbers = []
-                if ',' in part_clean:
-                    # 逗号分隔的多个数字
-                    number_strs = part_clean.split(',')
-                    for num_str in number_strs:
-                        num_clean = num_str.strip()
-                        if num_clean.isdigit():
-                            numbers.append(int(num_clean))
-                else:
-                    # 单个数字
-                    if part_clean.isdigit():
-                        numbers.append(int(part_clean))
-                
-                # 添加到对应位置
-                bets_by_position[position].extend(numbers)
-        
-        return bets_by_position
-    
-    @staticmethod
-    def parse_positional_bets(content, position_keywords=None):
-        """
-        解析位置投注内容
-        格式：位置1-投注项1,投注项2,位置2-投注项1,投注项2,...
-        """
-        content_str = str(content).strip()
-        bets_by_position = defaultdict(list)
-        
-        if not content_str:
-            return bets_by_position
-        
-        # 按逗号分割所有部分
-        parts = [part.strip() for part in content_str.split(',')]
-        
-        current_position = None
-        
-        for part in parts:
-            # 检查是否包含位置关键词
-            is_position = False
-            if position_keywords:
-                for keyword in position_keywords:
-                    if keyword in part and '-' in part:
-                        is_position = True
-                        break
-            
-            # 如果包含位置信息或者是明确的"位置-内容"格式
-            if '-' in part and (is_position or position_keywords is None):
-                try:
-                    position_part, bet_value = part.split('-', 1)
-                    current_position = position_part.strip()
-                    bets_by_position[current_position].append(bet_value.strip())
-                except ValueError:
-                    # 分割失败，可能不是有效的位置格式
-                    if current_position:
-                        bets_by_position[current_position].append(part)
-            elif current_position:
-                # 属于当前位置的投注项
-                bets_by_position[current_position].append(part)
+            # 根据彩种类型选择解析方法
+            if lottery_type == 'PK10':
+                self._parse_pk10(clean_content, play_category, play_method, position, result)
+            elif lottery_type == 'LHC':
+                self._parse_lhc(clean_content, play_category, play_method, position, result)
+            elif lottery_type == 'SSC':
+                self._parse_ssc(clean_content, play_category, play_method, position, result)
+            elif lottery_type == '3D':
+                self._parse_3d(clean_content, play_category, play_method, position, result)
+            elif lottery_type == 'K3':
+                self._parse_k3(clean_content, play_category, play_method, position, result)
+            elif lottery_type == 'THREE_COLOR':
+                self._parse_three_color(clean_content, play_category, play_method, position, result)
             else:
-                # 没有当前位置，可能是独立的投注项
-                bets_by_position['未知位置'].append(part)
-        
-        return bets_by_position
-    
-    @staticmethod
-    def parse_pk10_content(content):
-        """解析PK10投注内容 - 增强版，支持竖线格式"""
-        pk10_positions = ['冠军', '亚军', '第三名', '第四名', '第五名', 
-                         '第六名', '第七名', '第八名', '第九名', '第十名',
-                         '第1名', '第2名', '第3名', '第4名', '第5名',
-                         '第6名', '第7名', '第8名', '第9名', '第10名',
-                         '前一', '前二', '前三']
-        
-        content_str = str(content).strip()
-        
-        # 首先检查是否是竖线分隔格式
-        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
-            vertical_result = ContentParser.parse_pk10_vertical_format(content_str)
-            if any(vertical_result.values()):  # 如果有解析结果
-                return vertical_result
-        
-        # 特殊处理"位置:号码"格式
-        if ':' in content_str and re.search(r'\d{2}', content_str):
-            match = re.match(r'^(.+?):([\d,]+)$', content_str)
-            if match:
-                position = match.group(1).strip()
-                numbers_str = match.group(2)
-                bets_by_position = defaultdict(list)
-                
-                normalized_position = position
-                if '九' in position or '9' in position:
-                    normalized_position = '第九名'
-                
-                numbers = re.findall(r'\d{2}', numbers_str)
-                bets_by_position[normalized_position].extend([int(num) for num in numbers])
-                return bets_by_position
-        
-        # 原有的解析逻辑
-        return ContentParser.parse_positional_bets(content, pk10_positions)
-    
-    @staticmethod
-    def parse_lhc_zhengma_content(content):
-        """
-        解析六合彩正码投注内容 - 增强版本
-        格式：位置1-投注项1,投注项2,位置2-投注项1,投注项2,...
-        """
-        content_str = str(content).strip()
-        bets_by_position = defaultdict(list)
-        
-        if not content_str:
-            return bets_by_position
-        
-        # 按逗号分割所有部分
-        parts = [part.strip() for part in content_str.split(',')]
-        
-        current_position = None
-        
-        for part in parts:
-            # 检查是否包含位置关键词
-            is_position = False
-            position_keywords = ['正码一', '正码二', '正码三', '正码四', '正码五', '正码六',
-                               '正1', '正2', '正3', '正4', '正5', '正6',
-                               '正码1', '正码2', '正码3', '正码4', '正码5', '正码6']
+                # 通用解析
+                self._parse_generic(clean_content, result)
             
-            for keyword in position_keywords:
-                if keyword in part and '-' in part:
-                    is_position = True
-                    break
+            result['parsed_successfully'] = True
             
-            # 如果包含位置信息或者是明确的"位置-内容"格式
-            if '-' in part and is_position:
-                try:
-                    position_part, bet_value = part.split('-', 1)
-                    current_position = position_part.strip()
-                    bets_by_position[current_position].append(bet_value.strip())
-                except ValueError:
-                    # 分割失败，可能不是有效的位置格式
-                    if current_position:
-                        bets_by_position[current_position].append(part)
-            elif current_position:
-                # 属于当前位置的投注项
-                bets_by_position[current_position].append(part)
-            else:
-                # 没有当前位置，可能是独立的投注项
-                bets_by_position['未知位置'].append(part)
-        
-        return bets_by_position
-    
-    @staticmethod
-    def parse_ssc_content(content):
-        """解析时时彩投注内容 - 增强竖线格式支持"""
-        ssc_positions = ['第1球', '第2球', '第3球', '第4球', '第5球',
-                        '万位', '千位', '百位', '十位', '个位']
-        
-        content_str = str(content).strip()
-        
-        # 首先检查是否是竖线分隔格式
-        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
-            vertical_result = ContentParser.parse_ssc_vertical_format(content_str)
-            if any(vertical_result.values()):  # 如果有解析结果
-                return vertical_result
-        
-        # 原有的解析逻辑
-        return ContentParser.parse_positional_bets(content, ssc_positions)
-
-    @staticmethod
-    def parse_3d_vertical_format(content):
-        """
-        解析3D/排列3竖线分隔的定位胆格式
-        格式：号码1,号码2|号码3|号码4,号码5,号码6
-        或者：_|05|_ 表示只有第二个位置有投注
-        """
-        try:
-            content_str = str(content).strip()
-            bets_by_position = defaultdict(list)
-            
-            if not content_str:
-                return bets_by_position
-            
-            # 定义位置映射 - 3D通常是百位、十位、个位
-            positions = ['百位', '十位', '个位']
-            
-            # 按竖线分割
-            parts = content_str.split('|')
-            
-            for i, part in enumerate(parts):
-                if i < len(positions):
-                    position = positions[i]
-                    part_clean = part.strip()
-                    
-                    # 跳过空位或下划线
-                    if not part_clean or part_clean == '_' or part_clean == '':
-                        continue
-                    
-                    # 提取数字（可能是单个数字或多个逗号分隔的数字）
-                    numbers = []
-                    if ',' in part_clean:
-                        # 逗号分隔的多个数字
-                        number_strs = part_clean.split(',')
-                        for num_str in number_strs:
-                            num_clean = num_str.strip()
-                            if num_clean.isdigit():
-                                numbers.append(int(num_clean))
-                    else:
-                        # 单个数字 - 修复：使用part_clean
-                        if part_clean.isdigit():
-                            numbers.append(int(part_clean))
-                    
-                    # 添加到对应位置
-                    bets_by_position[position].extend(numbers)
-            
-            return bets_by_position
         except Exception as e:
-            logger.warning(f"解析3D竖线格式失败: {content}, 错误: {str(e)}")
-            return defaultdict(list)
-
-# ==================== 增强内容解析器 ====================
-class EnhancedContentParser:
-    """增强版内容解析器，支持从内容中识别玩法和位置"""
-    
-    @staticmethod
-    def extract_play_method_and_position(content, lottery_type):
-        """
-        从投注内容中提取玩法和位置
-        返回: (玩法类型, 位置, 纯投注内容)
-        """
-        content_str = str(content).strip()
+            logger.warning(f"统一解析失败: {content_str}, 彩种: {lottery_type}, 错误: {str(e)}")
+            result['parse_error'] = str(e)
         
-        if lottery_type == 'LHC':
-            return EnhancedContentParser._parse_lhc_content(content_str)
-        elif lottery_type == 'PK10':
-            return EnhancedContentParser._parse_pk10_content(content_str)
-        elif lottery_type == 'SSC':
-            return EnhancedContentParser._parse_ssc_content(content_str)
-        elif lottery_type == '3D':
-            return EnhancedContentParser._parse_3d_content(content_str)
-        else:
-            return '未知玩法', '未知位置', content_str
+        # 缓存结果
+        self.cache[cache_key] = result
+        return result
     
-    @staticmethod
-    def _parse_lhc_content(content):
+    def _create_empty_result(self, content, lottery_type, play_category):
+        """创建空结果结构"""
+        return {
+            'raw_content': content,
+            'lottery_type': lottery_type,
+            'play_category': play_category,
+            'play_method': '未知玩法',
+            'position': '未知位置',
+            'clean_content': '',
+            'numbers': [],  # 所有数字
+            'zodiacs': [],  # 生肖
+            'tails': [],    # 尾数
+            'size_parity': [],  # 大小单双
+            'dragon_tiger': [],  # 龙虎
+            'wave_color': [],  # 波色
+            'five_elements': [],  # 五行
+            'douniu_types': [],  # 斗牛类型
+            'positions': defaultdict(list),  # 按位置分类的投注
+            'gyh_numbers': set(),  # 冠亚和号码
+            'gyh_size_parity': set(),  # 冠亚和大小单双
+            'two_sides': {  # 两面玩法详情
+                'normal_size': set(),
+                'tail_size': set(),
+                'parity': set(),
+                'sum_parity': set(),
+                'range_bet': set(),
+                'animal_type': set(),
+                'zodiac': set(),
+                'wave': set(),
+                'other': set()
+            },
+            'parsed_successfully': False,
+            'parse_error': None
+        }
+    
+    # =============== PK10解析 ===============
+    def _parse_pk10(self, content, play_category, play_method, position, result):
+        """解析PK10内容"""
+        # 1. 首先使用ContentParser解析位置投注
+        bets_by_position = self.content_parser.parse_pk10_content(content)
+        if bets_by_position:
+            result['positions'] = bets_by_position
+            # 从位置中提取数字
+            for pos, bets in bets_by_position.items():
+                for bet in bets:
+                    if isinstance(bet, (int, float)):
+                        num = int(bet)
+                        if 1 <= num <= 10:
+                            result['numbers'].append(num)
+                            result['positions'][pos].append(num)
+                    elif isinstance(bet, str):
+                        # 处理字符串形式的数字
+                        if bet.isdigit():
+                            num = int(bet)
+                            if 1 <= num <= 10:
+                                result['numbers'].append(num)
+                                result['positions'][pos].append(num)
+        
+        # 2. 如果没有解析出位置，尝试其他方式
+        if not result['positions']:
+            # 提取所有数字
+            numbers = self._extract_numbers_from_text(content, 1, 10)
+            result['numbers'] = numbers
+            
+            # 如果是冠军、亚军等位置，记录到positions中
+            if result['position'] != '未知位置':
+                result['positions'][result['position']].extend(numbers)
+        
+        # 3. 提取大小单双
+        result['size_parity'] = self._extract_size_parity_from_text(content)
+        
+        # 4. 提取龙虎
+        result['dragon_tiger'] = self._extract_dragon_tiger_from_text(content)
+        
+        # 5. 如果是冠亚和玩法，特殊处理
+        if '冠亚和' in play_category or '冠亚和' in content:
+            self._parse_pk10_gyh(content, result)
+    
+    def _parse_pk10_gyh(self, content, result):
+        """解析PK10冠亚和"""
+        # 提取冠亚和号码 (3-19)
+        numbers = self._extract_numbers_from_text(content, 1, 19)
+        result['gyh_numbers'] = set(numbers)
+        
+        # 提取冠亚和大小单双
+        if '大' in content:
+            result['gyh_size_parity'].add('大')
+        if '小' in content:
+            result['gyh_size_parity'].add('小')
+        if '单' in content:
+            result['gyh_size_parity'].add('单')
+        if '双' in content:
+            result['gyh_size_parity'].add('双')
+    
+    # =============== 六合彩解析 ===============
+    def _parse_lhc(self, content, play_category, play_method, position, result):
         """解析六合彩内容"""
-        # 正码位置识别
-        zhengma_positions = {
-            '正码一': ['正码一', '正码1', '正1', '正一'],
-            '正码二': ['正码二', '正码2', '正2', '正二'],
-            '正码三': ['正码三', '正码3', '正3', '正三'],
-            '正码四': ['正码四', '正码4', '正4', '正四'],
-            '正码五': ['正码五', '正码5', '正5', '正五'],
-            '正码六': ['正码六', '正码6', '正6', '正六']
-        }
+        # 1. 首先解析玩法-投注内容格式
+        if '-' in content:
+            parts = content.split('-', 1)
+            play_part = parts[0].strip()
+            bet_content = parts[1].strip()
+        else:
+            bet_content = content
         
-        # 玩法类型识别
-        play_methods = {
-            '波色': ['红波', '蓝波', '绿波', '波色'],
-            '大小': ['大', '小'],
-            '单双': ['单', '双'],
-            '尾数': ['尾'],
-            '生肖': ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']
-        }
+        # 2. 根据玩法分类选择解析方法
+        if play_category in ['特码', '正码', '正特', '正1特', '正2特', '正3特', '正4特', '正5特', '正6特']:
+            self._parse_lhc_numbers(bet_content, result)
+        elif play_category in ['两面', '特码A', '特码B']:
+            self._parse_lhc_two_sides(bet_content, result)
+        elif play_category in ['平特', '特肖', '一肖', '连肖']:
+            self._parse_lhc_zodiacs(bet_content, result)
+        elif '尾数' in play_category or '尾' in play_category:
+            self._parse_lhc_tails(bet_content, result)
+        elif play_category in ['色波', '波色', '半波']:
+            self._parse_lhc_wave_color(bet_content, result)
+        elif play_category == '五行':
+            self._parse_lhc_five_elements(bet_content, result)
+        elif play_category == '正码1-6' or play_category == '正码':
+            self._parse_lhc_zhengma_1_6(bet_content, result)
+        else:
+            # 通用解析：尝试所有可能
+            self._parse_lhc_numbers(bet_content, result)
+            self._parse_lhc_zodiacs(bet_content, result)
+            self._parse_lhc_tails(bet_content, result)
+            self._parse_lhc_wave_color(bet_content, result)
+            self._parse_lhc_five_elements(bet_content, result)
+            self._parse_lhc_two_sides(bet_content, result)
         
-        position = '未知位置'
-        play_method = '未知玩法'
-        clean_content = content
+        # 3. 如果是正码1-6，解析位置信息
+        if '正码' in play_category:
+            bets_by_position = self.content_parser.parse_lhc_zhengma_content(content)
+            if bets_by_position:
+                result['positions'] = bets_by_position
+    
+    def _parse_lhc_numbers(self, content, result):
+        """解析六合彩号码"""
+        numbers = self._extract_numbers_from_text(content, 1, 49)
+        result['numbers'] = numbers
+    
+    def _parse_lhc_two_sides(self, content, result):
+        """解析六合彩两面玩法"""
+        # 使用现有的DataAnalyzer方法
+        analyzer = DataAnalyzer()
+        two_sides_result = analyzer.extract_lhc_two_sides_content(content)
+        result['two_sides'] = two_sides_result
         
-        # 识别位置
-        for pos_name, keywords in zhengma_positions.items():
-            for keyword in keywords:
-                if keyword in content:
-                    position = pos_name
-                    # 从内容中移除位置信息，得到纯投注内容
-                    clean_content = clean_content.replace(keyword, '').strip()
-                    break
-            if position != '未知位置':
-                break
+        # 将two_sides结果映射到其他字段
+        for bet_type, bets in two_sides_result.items():
+            if bet_type == 'normal_size' and bets:
+                result['size_parity'].extend(bets)
+            elif bet_type == 'parity' and bets:
+                result['size_parity'].extend(bets)
+            elif bet_type == 'wave' and bets:
+                result['wave_color'].extend(bets)
+            elif bet_type == 'zodiac' and bets:
+                result['zodiacs'].extend(bets)
+    
+    def _parse_lhc_zodiacs(self, content, result):
+        """解析六合彩生肖"""
+        zodiacs = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']
+        for zodiac in zodiacs:
+            if zodiac in content:
+                result['zodiacs'].append(zodiac)
+    
+    def _parse_lhc_tails(self, content, result):
+        """解析六合彩尾数"""
+        # 匹配尾0,尾1,...,尾9
+        tail_matches = re.findall(r'尾([0-9])', content)
+        for tail_str in tail_matches:
+            result['tails'].append(int(tail_str))
         
-        # 识别玩法
-        for method_name, keywords in play_methods.items():
-            for keyword in keywords:
-                if keyword in clean_content:
-                    play_method = method_name
-                    break
-            if play_method != '未知玩法':
-                break
-        
-        return play_method, position, clean_content
-
-    @staticmethod
-    def _parse_pk10_content(content):
-        """解析PK10内容 - 专门修复冠军亚军季军"""
-        # 处理特殊空格字符
-        import re
-        content_processed = re.sub(r'[ \t\u00A0\u3000\u2000-\u200B]+', ' ', str(content).strip())
-        
-        # PK10位置识别 - 专门处理冠军亚军季军
-        pk10_positions = {
-            '冠军': ['冠军', '第1名', '第一名', '前一', '冠 军', '冠　军'],
-            '亚军': ['亚军', '第2名', '第二名', '亚 军', '亚　军'],
-            '季军': ['季军', '第3名', '第三名', '季 军', '季　军'],
-            '第四名': ['第四名', '第4名'],
-            '第五名': ['第五名', '第5名'],
-            '第六名': ['第六名', '第6名'],
-            '第七名': ['第七名', '第7名'],
-            '第八名': ['第八名', '第8名'],
-            '第九名': ['第九名', '第9名'],
-            '第十名': ['第十名', '第10名']
-        }
-        
-        position = '未知位置'
-        play_method = '未知玩法'
-        clean_content = content_processed
-        
-        # 专门处理冠军、亚军、季军的识别
-        # 首先检查是否包含位置关键词
-        for pos_name, keywords in pk10_positions.items():
-            for keyword in keywords:
-                # 使用处理后的内容进行匹配
-                if keyword in content_processed:
-                    position = pos_name
-                    # 从内容中移除位置信息，得到纯投注内容
-                    clean_content = clean_content.replace(keyword, '').strip()
-                    break
-            if position != '未知位置':
-                break
-        
-        # 如果仍然没有识别到位置，尝试更宽松的匹配
-        if position == '未知位置':
-            if any(word in content_processed for word in ['冠军', '冠 军', '冠　军', '冠  军']):
-                position = '冠军'
-            elif any(word in content_processed for word in ['亚军', '亚 军', '亚　军', '亚  军']):
-                position = '亚军' 
-            elif any(word in content_processed for word in ['季军', '季 军', '季　军', '季  军']):
-                position = '季军'
-        
-        # 识别玩法类型
-        play_methods = {
-            '龙虎': ['龙', '虎'],
-            '大小': ['大', '小'],
-            '单双': ['单', '双']
-        }
-        
-        for method_name, keywords in play_methods.items():
-            for keyword in keywords:
-                if keyword in clean_content:
-                    play_method = method_name
-                    break
-            if play_method != '未知玩法':
-                break
-        
-        return play_method, position, clean_content
-
-    @staticmethod
-    def _parse_ssc_content(content):
+        # 匹配0尾,1尾,...,9尾
+        tail_matches2 = re.findall(r'([0-9])尾', content)
+        for tail_str in tail_matches2:
+            result['tails'].append(int(tail_str))
+    
+    def _parse_lhc_wave_color(self, content, result):
+        """解析六合彩波色"""
+        if '红波' in content or '紅波' in content:
+            result['wave_color'].append('红波')
+        if '蓝波' in content or '藍波' in content:
+            result['wave_color'].append('蓝波')
+        if '绿波' in content or '綠波' in content:
+            result['wave_color'].append('绿波')
+    
+    def _parse_lhc_five_elements(self, content, result):
+        """解析六合彩五行"""
+        elements = ['金', '木', '水', '火', '土']
+        for element in elements:
+            if element in content:
+                result['five_elements'].append(element)
+    
+    def _parse_lhc_zhengma_1_6(self, content, result):
+        """解析六合彩正码1-6"""
+        # 尝试解析位置投注
+        bets_by_position = self.content_parser.parse_lhc_zhengma_content(content)
+        if bets_by_position:
+            result['positions'] = bets_by_position
+    
+    # =============== 时时彩解析 ===============
+    def _parse_ssc(self, content, play_category, play_method, position, result):
         """解析时时彩内容"""
-        # 时时彩位置识别
-        ssc_positions = {
-            '第1球': ['第1球', '万位', '第一位'],
-            '第2球': ['第2球', '千位', '第二位'],
-            '第3球': ['第3球', '百位', '第三位'],
-            '第4球': ['第4球', '十位', '第四位'],
-            '第5球': ['第5球', '个位', '第五位']
-        }
+        # 1. 首先尝试竖线格式
+        if '|' in content:
+            bets_by_position = self.content_parser.parse_ssc_vertical_format(content)
+            if bets_by_position:
+                result['positions'] = bets_by_position
+                # 提取数字
+                for pos, bets in bets_by_position.items():
+                    for bet in bets:
+                        if isinstance(bet, (int, float)):
+                            num = int(bet)
+                            if 0 <= num <= 9:
+                                result['numbers'].append(num)
         
-        # 玩法类型识别
-        play_methods = {
-            '大小': ['大', '小'],
-            '单双': ['单', '双'],
-            '号码': [str(i) for i in range(0, 10)]
-        }
+        # 2. 如果没有竖线格式，尝试位置-号码格式
+        if not result['positions']:
+            bets_by_position = self.content_parser.parse_ssc_content(content)
+            if bets_by_position:
+                result['positions'] = bets_by_position
         
-        position = '未知位置'
-        play_method = '未知玩法'
-        clean_content = content
+        # 3. 提取所有数字
+        if not result['numbers']:
+            numbers = self._extract_numbers_from_text(content, 0, 9)
+            result['numbers'] = numbers
         
-        # 识别位置
-        for pos_name, keywords in ssc_positions.items():
-            for keyword in keywords:
-                if keyword in content:
-                    position = pos_name
-                    clean_content = clean_content.replace(keyword, '').strip()
-                    break
-            if position != '未知位置':
-                break
+        # 4. 提取大小单双
+        result['size_parity'] = self._extract_size_parity_from_text(content)
         
-        # 识别玩法
-        for method_name, keywords in play_methods.items():
-            for keyword in keywords:
-                if keyword in clean_content:
-                    play_method = method_name
-                    break
-            if play_method != '未知玩法':
-                break
+        # 5. 提取龙虎
+        result['dragon_tiger'] = self._extract_dragon_tiger_from_text(content)
         
-        return play_method, position, clean_content
-
-    @staticmethod
-    def _parse_3d_content(content):
+        # 6. 如果是斗牛玩法，特殊处理
+        if '斗牛' in play_category or '斗牛' in content:
+            self._parse_ssc_douniu(content, result)
+    
+    def _parse_ssc_douniu(self, content, result):
+        """解析时时彩斗牛"""
+        clean_content = content.replace('斗牛-', '')
+        bull_types = ['无牛', '牛一', '牛二', '牛三', '牛四', '牛五', 
+                     '牛六', '牛七', '牛八', '牛九', '牛牛']
+        for bull_type in bull_types:
+            if bull_type in clean_content:
+                result['douniu_types'].append(bull_type)
+    
+    # =============== 3D解析 ===============
+    def _parse_3d(self, content, play_category, play_method, position, result):
         """解析3D内容"""
-        # 3D位置识别
-        three_d_positions = {
-            '百位': ['百位'],
-            '十位': ['十位'],
-            '个位': ['个位']
+        # 1. 首先尝试竖线格式
+        if '|' in content:
+            bets_by_position = self.content_parser.parse_3d_vertical_format(content)
+            if bets_by_position:
+                result['positions'] = bets_by_position
+                # 提取数字
+                for pos, bets in bets_by_position.items():
+                    for bet in bets:
+                        if isinstance(bet, (int, float)):
+                            num = int(bet)
+                            if 0 <= num <= 9:
+                                result['numbers'].append(num)
+        
+        # 2. 如果没有竖线格式，尝试位置-号码格式
+        if not result['positions']:
+            # 使用通用的位置解析
+            bets_by_position = self.content_parser.parse_positional_bets(content, ['百位', '十位', '个位'])
+            if bets_by_position:
+                result['positions'] = bets_by_position
+        
+        # 3. 提取所有数字
+        if not result['numbers']:
+            numbers = self._extract_numbers_from_text(content, 0, 9)
+            result['numbers'] = numbers
+        
+        # 4. 提取大小单双
+        result['size_parity'] = self._extract_size_parity_from_text(content)
+        
+        # 5. 特殊处理：如果是两面玩法，还需要提取质合等
+        if play_category == '两面':
+            if '质' in content:
+                result['size_parity'].append('质')
+            if '合' in content:
+                result['size_parity'].append('合')
+    
+    # =============== 快三解析 ===============
+    def _parse_k3(self, content, play_category, play_method, position, result):
+        """解析快三内容"""
+        # 1. 特殊处理三军格式：1,2,3,4,5,6
+        if re.match(r'^(\d,)*\d$', content.strip()):
+            numbers = [int(x.strip()) for x in content.split(',') if x.strip().isdigit()]
+            # 过滤范围 (1-6)
+            numbers = [num for num in numbers if 1 <= num <= 6]
+            result['numbers'] = list(set(numbers))
+            return
+        
+        # 2. 提取数字 (1-6)
+        numbers = self._extract_numbers_from_text(content, 1, 6)
+        result['numbers'] = numbers
+        
+        # 3. 提取大小单双
+        result['size_parity'] = self._extract_size_parity_from_text(content)
+        
+        # 4. 如果是和值玩法，特殊处理
+        if '和值' in play_category or '和值' in content:
+            # 和值范围是3-18
+            hezhi_numbers = self._extract_numbers_from_text(content, 3, 18)
+            if hezhi_numbers:
+                result['numbers'] = hezhi_numbers
+    
+    # =============== 三色彩解析 ===============
+    def _parse_three_color(self, content, play_category, play_method, position, result):
+        """解析三色彩内容"""
+        # 1. 提取数字 (0-9)
+        numbers = self._extract_numbers_from_text(content, 0, 9)
+        result['numbers'] = numbers
+        
+        # 2. 提取大小单双
+        result['size_parity'] = self._extract_size_parity_from_text(content)
+        
+        # 3. 提取波色（三色彩只有红波、绿波、紫波）
+        if '红波' in content or '紅波' in content:
+            result['wave_color'].append('红波')
+        if '绿波' in content or '綠波' in content:
+            result['wave_color'].append('绿波')
+        if '紫波' in content:
+            result['wave_color'].append('紫波')
+    
+    # =============== 通用解析 ===============
+    def _parse_generic(self, content, result):
+        """通用解析方法"""
+        # 提取数字
+        numbers = self._extract_numbers_from_text(content, 0, 49)
+        result['numbers'] = numbers
+        
+        # 提取大小单双
+        result['size_parity'] = self._extract_size_parity_from_text(content)
+    
+    # =============== 基础提取方法 ===============
+    @staticmethod
+    def _extract_numbers_from_text(text, min_num=0, max_num=49):
+        """从文本中提取数字"""
+        numbers = []
+        try:
+            # 特殊处理逗号分隔的数字：1,2,3,4,5,6
+            if re.match(r'^(\d,)*\d$', text.strip()):
+                parts = [x.strip() for x in text.split(',')]
+                for part in parts:
+                    if part.isdigit():
+                        num = int(part)
+                        if min_num <= num <= max_num:
+                            numbers.append(num)
+                return list(set(numbers))
+            
+            # 正则提取
+            number_matches = re.findall(r'\b\d{1,2}\b', text)
+            for match in number_matches:
+                num = int(match)
+                if min_num <= num <= max_num:
+                    numbers.append(num)
+            
+            return list(set(numbers))
+        except Exception:
+            return []
+    
+    @staticmethod
+    def _extract_size_parity_from_text(text):
+        """从文本中提取大小单双"""
+        text_str = str(text)
+        size_parity = []
+        
+        # 使用精确匹配，避免误匹配
+        if re.search(r'(?<!合)大(?![小尾])', text_str) or '特大' in text_str:
+            size_parity.append('大')
+        if re.search(r'(?<!合)小(?![大尾])', text_str) or '特小' in text_str:
+            size_parity.append('小')
+        if re.search(r'(?<!合)单(?![双])', text_str) or '特单' in text_str:
+            size_parity.append('单')
+        if re.search(r'(?<!合)双(?![单])', text_str) or '特双' in text_str:
+            size_parity.append('双')
+        
+        return list(set(size_parity))
+    
+    @staticmethod
+    def _extract_dragon_tiger_from_text(text):
+        """从文本中提取龙虎"""
+        text_str = str(text)
+        dragon_tiger = []
+        
+        if '龙' in text_str and '虎' not in text_str:
+            dragon_tiger.append('龙')
+        if '虎' in text_str and '龙' not in text_str:
+            dragon_tiger.append('虎')
+        
+        return list(set(dragon_tiger))
+    
+    # =============== 便捷方法 ===============
+    def extract_numbers(self, content, lottery_type, play_category=''):
+        """便捷方法：提取号码"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['numbers']
+    
+    def extract_size_parity(self, content, lottery_type, play_category=''):
+        """便捷方法：提取大小单双"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['size_parity']
+    
+    def extract_zodiacs(self, content, lottery_type, play_category=''):
+        """便捷方法：提取生肖"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['zodiacs']
+    
+    def extract_tails(self, content, lottery_type, play_category=''):
+        """便捷方法：提取尾数"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['tails']
+    
+    def extract_wave_color(self, content, lottery_type, play_category=''):
+        """便捷方法：提取波色"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['wave_color']
+    
+    def extract_dragon_tiger(self, content, lottery_type, play_category=''):
+        """便捷方法：提取龙虎"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['dragon_tiger']
+    
+    def extract_five_elements(self, content, lottery_type, play_category=''):
+        """便捷方法：提取五行"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['five_elements']
+    
+    def extract_douniu_types(self, content, lottery_type, play_category=''):
+        """便捷方法：提取斗牛类型"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['douniu_types']
+    
+    def extract_positions(self, content, lottery_type, play_category=''):
+        """便捷方法：提取位置投注"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['positions']
+    
+    def extract_two_sides(self, content, lottery_type, play_category=''):
+        """便捷方法：提取两面玩法详情"""
+        result = self.parse(content, lottery_type, play_category)
+        return result['two_sides']
+    
+    def extract_gyh_info(self, content, lottery_type, play_category=''):
+        """便捷方法：提取冠亚和信息"""
+        result = self.parse(content, lottery_type, play_category)
+        return {
+            'numbers': result['gyh_numbers'],
+            'size_parity': result['gyh_size_parity']
         }
-        
-        # 玩法类型识别
-        play_methods = {
-            '大小': ['大', '小'],
-            '单双': ['单', '双'],
-            '号码': [str(i) for i in range(0, 10)]
+    
+    def get_play_info(self, content, lottery_type):
+        """便捷方法：获取玩法和位置信息"""
+        result = self.parse(content, lottery_type)
+        return {
+            'play_method': result['play_method'],
+            'position': result['position'],
+            'clean_content': result['clean_content']
         }
-        
-        position = '未知位置'
-        play_method = '未知玩法'
-        clean_content = content
-        
-        # 识别位置
-        for pos_name, keywords in three_d_positions.items():
-            for keyword in keywords:
-                if keyword in content:
-                    position = pos_name
-                    clean_content = clean_content.replace(keyword, '').strip()
-                    break
-            if position != '未知位置':
-                break
-        
-        # 识别玩法
-        for method_name, keywords in play_methods.items():
-            for keyword in keywords:
-                if keyword in clean_content:
-                    play_method = method_name
-                    break
-            if play_method != '未知玩法':
-                break
-        
-        return play_method, position, clean_content
 
 # ==================== 数据分析类 ====================
 class DataAnalyzer:
     def __init__(self):
         self.cache = {}
-        self.content_parser = ContentParser()  # 添加统一解析器
-
+        self.unified_parser = UnifiedContentParser()  # 使用统一解析引擎
+    
     @lru_cache(maxsize=1000)
     def cached_extract_numbers(self, content, min_num=0, max_num=49, is_pk10=False):
-        """带缓存的号码提取"""
+        """带缓存的号码提取 - 使用统一解析引擎"""
         return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
     
     @lru_cache(maxsize=500)
@@ -1057,337 +1022,69 @@ class DataAnalyzer:
     
     @lru_cache(maxsize=10000)
     def extract_numbers_cached(self, content, min_num, max_num, is_pk10=False):
-        """带缓存的号码提取函数"""
+        """带缓存的号码提取函数 - 使用统一解析引擎"""
         return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
     
     def extract_numbers_from_content(self, content, min_num=0, max_num=49, is_pk10=False):
-        """从内容中提取数字 - 增强三军格式处理"""
-        numbers = []
-        content_str = str(content)
+        """从内容中提取数字 - 使用统一解析引擎"""
+        # 确定彩种类型
+        lottery_type = 'PK10' if is_pk10 else 'GENERIC'
         
-        try:
-            # 特殊处理三军格式：1,2,3,4,5,6
-            if re.match(r'^(\d,)*\d$', content_str.strip()):
-                numbers = [int(x.strip()) for x in content_str.split(',') if x.strip().isdigit()]
-                # 过滤范围
-                numbers = [num for num in numbers if min_num <= num <= max_num]
-                return list(set(numbers))
-            
-            if is_pk10:
-                # PK拾/赛车特殊处理：过滤掉"第X名"等玩法描述
-                content_str = re.sub(r'第\d+名-?', '', content_str)
-            
-            # 提取数字
-            number_matches = re.findall(r'\b\d{1,2}\b', content_str)
-            for match in number_matches:
-                num = int(match)
-                if min_num <= num <= max_num:
-                    numbers.append(num)
-            
-            return list(set(numbers))
-        except Exception as e:
-            logger.warning(f"号码提取失败: {content}, 错误: {str(e)}")
-            return []
+        # 使用统一解析器
+        numbers = self.unified_parser.extract_numbers(content, lottery_type)
+        
+        # 过滤范围
+        numbers = [num for num in numbers if min_num <= num <= max_num]
+        
+        return list(set(numbers))
     
     def extract_zodiacs_from_content(self, content):
-        """从内容中提取生肖"""
-        zodiacs = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']
-        found_zodiacs = []
-        
-        content_str = str(content)
-        for zodiac in zodiacs:
-            if zodiac in content_str:
-                found_zodiacs.append(zodiac)
-        
-        return list(set(found_zodiacs))
+        """从内容中提取生肖 - 使用统一解析引擎"""
+        return self.unified_parser.extract_zodiacs(content, 'LHC')
     
     def extract_tails_from_content(self, content):
-        """从内容中提取尾数（连尾专用）"""
-        tails = []
-        content_str = str(content)
-        
-        # 匹配尾数模式：尾0、尾1、0尾、1尾等
-        tail_patterns = [
-            r'尾([0-9])',  # 尾0,尾1,...,尾9
-            r'([0-9])尾',  # 0尾,1尾,...,9尾
-        ]
-        
-        for pattern in tail_patterns:
-            matches = re.findall(pattern, content_str)
-            tails.extend([int(tail) for tail in matches])
-        
-        return list(set(tails))
+        """从内容中提取尾数 - 使用统一解析引擎"""
+        return self.unified_parser.extract_tails(content, 'LHC')
     
     def extract_size_parity_from_content(self, content):
-        """从内容中提取大小单双本"""
-        content_str = str(content)
-        size_parity = []
-        
-        # 使用更精确的匹配，避免误匹配
-        if re.search(r'(?<!合)大(?![小尾])', content_str) or '特大' in content_str:
-            size_parity.append('大')
-        if re.search(r'(?<!合)小(?![大尾])', content_str) or '特小' in content_str:
-            size_parity.append('小')
-        if re.search(r'(?<!合)单(?![双])', content_str) or '特单' in content_str:
-            size_parity.append('单')
-        if re.search(r'(?<!合)双(?![单])', content_str) or '特双' in content_str:
-            size_parity.append('双')
-        
-        return list(set(size_parity))
+        """从内容中提取大小单双 - 使用统一解析引擎"""
+        return self.unified_parser.extract_size_parity(content, 'GENERIC')
     
     def extract_dragon_tiger_from_content(self, content):
-        """从内容中提取龙虎"""
-        content_str = str(content)
-        dragon_tiger = []
-        
-        if '龙' in content_str and '虎' not in content_str:
-            dragon_tiger.append('龙')
-        if '虎' in content_str and '龙' not in content_str:
-            dragon_tiger.append('虎')
-        
-        return list(set(dragon_tiger))
+        """从内容中提取龙虎 - 使用统一解析引擎"""
+        return self.unified_parser.extract_dragon_tiger(content, 'PK10')
     
     def extract_wave_color_from_content(self, content):
-        """从内容中提取波色 - 增强版，支持半波项识别"""
-        content_str = str(content)
-        found_waves = []
-        
-        # 波色映射（包括七色波的所有颜色）
-        wave_mappings = {
-            '红波': ['红波', '紅色波', '红'],
-            '蓝波': ['蓝波', '藍波', '蓝', '藍'],
-            '绿波': ['绿波', '綠波', '绿', '綠'],
-            '紫波': ['紫波', '紫'],
-            '橙波': ['橙波', '橙'],
-            '黄波': ['黄波', '黃波', '黄', '黃'],
-            '青波': ['青波', '青']
-        }
-        
-        for wave_name, keywords in wave_mappings.items():
-            for keyword in keywords:
-                if keyword in content_str:
-                    # 检查是否是复合投注，如"红波-红双"
-                    if '-' in content_str and f"{keyword}-" in content_str:
-                        # 这种情况"红波"是玩法部分，不是实际投注内容
-                        pass  # 添加pass语句，避免空的if分支
-                    else:
-                        # 检查是否被半波项包含（如"红大"包含"红"，但不是我们要的波色）
-                        is_banbo_item = False
-                        banbo_indicators = ['大', '小', '单', '双']
-                        for indicator in banbo_indicators:
-                            if f"{keyword}{indicator}" in content_str or f"{keyword} {indicator}" in content_str:
-                                is_banbo_item = True
-                                break
-                        
-                        if not is_banbo_item:
-                            found_waves.append(wave_name)
-                    break  # 找到一个关键词就跳出内层循环
-        
-        return list(set(found_waves))
-
+        """从内容中提取波色 - 使用统一解析引擎"""
+        return self.unified_parser.extract_wave_color(content, 'LHC')
+    
     def extract_three_color_wave_from_content(self, content):
-        """从内容中提取三色彩的波色 - 只提取红波、绿波、紫波"""
-        content_str = str(content)
-        found_waves = []
-        
-        # 处理繁体字和简体字
-        if '红波' in content_str or '紅波' in content_str:
-            found_waves.append('红波')
-        if '绿波' in content_str or '綠波' in content_str:
-            found_waves.append('绿波')
-        if '紫波' in content_str:
-            found_waves.append('紫波')
-        
-        return list(set(found_waves))
+        """从内容中提取三色彩的波色 - 使用统一解析引擎"""
+        return self.unified_parser.extract_wave_color(content, 'THREE_COLOR')
     
     def extract_five_elements_from_content(self, content):
-        """从内容中提取五行"""
-        content_str = str(content)
-        elements = ['金', '木', '水', '火', '土']
-        found_elements = []
-        
-        for element in elements:
-            if element in content_str:
-                found_elements.append(element)
-        
-        return list(set(found_elements))
+        """从内容中提取五行 - 使用统一解析引擎"""
+        return self.unified_parser.extract_five_elements(content, 'LHC')
     
     def extract_douniu_types(self, content):
-        """提取斗牛类型"""
-        content_str = str(content)
-        bull_types = []
-        
-        # 移除"斗牛-"前缀
-        clean_content = content_str.replace('斗牛-', '')
-        
-        # 斗牛类型列表
-        all_types = ['无牛', '牛一', '牛二', '牛三', '牛四', '牛五', 
-                    '牛六', '牛七', '牛八', '牛九', '牛牛']
-        
-        for bull_type in all_types:
-            if bull_type in clean_content:
-                bull_types.append(bull_type)
-        
-        return list(set(bull_types))
+        """提取斗牛类型 - 使用统一解析引擎"""
+        return self.unified_parser.extract_douniu_types(content, 'SSC')
     
     def parse_pk10_gyh_content(self, content):
-        """解析PK10冠亚和玩法内容"""
-        content_str = str(content)
-        result = {
-            'numbers': set(),    # 和值号码
-            'size_parity': set() # 大小单双
+        """解析PK10冠亚和玩法内容 - 使用统一解析引擎"""
+        gyh_info = self.unified_parser.extract_gyh_info(content, 'PK10')
+        return {
+            'numbers': gyh_info['numbers'],
+            'size_parity': gyh_info['size_parity']
         }
-        
-        # 提取号码（3-19）
-        numbers = re.findall(r'\b(1[0-9]|[3-9])\b', content_str)
-        result['numbers'].update([int(num) for num in numbers])
-        
-        # 提取大小单双
-        content_lower = content_str.lower()
-        if '大' in content_lower or '冠亚大' in content_lower:
-            result['size_parity'].add('大')
-        if '小' in content_lower or '冠亚小' in content_lower:
-            result['size_parity'].add('小')
-        if '单' in content_lower or '冠亚单' in content_lower:
-            result['size_parity'].add('单')
-        if '双' in content_lower or '冠亚双' in content_lower:
-            result['size_parity'].add('双')
-        
-        return result
     
     def parse_pk10_number_content(self, content):
-        """解析PK10号码类玩法内容 - 增强竖线格式支持"""
-        content_str = str(content)
-        numbers_by_position = defaultdict(list)
-        
-        # 首先尝试竖线分隔格式
-        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
-            vertical_result = ContentParser.parse_pk10_vertical_format(content_str)
-            if any(vertical_result.values()):
-                return vertical_result
-        
-        # 处理竖线分隔的格式：01,02,03,04,05|07,08,06,09,10|...
-        if '|' in content_str and re.search(r'\d{2}', content_str):
-            positions = ['冠军', '亚军', '第三名', '第四名', '第五名']
-            parts = content_str.split('|')
-            
-            for i, part in enumerate(parts):
-                if i < len(positions):
-                    position = positions[i]
-                    numbers = re.findall(r'\d{2}', part)
-                    numbers_by_position[position].extend([int(num) for num in numbers])
-        
-        # 处理"第九名:01,02,05,06,07,08,09,03"这种格式
-        elif ':' in content_str and re.search(r'\d{2}', content_str):
-            match = re.match(r'^(.+?):([\d,]+)$', content_str)
-            if match:
-                position = match.group(1).strip()
-                numbers_str = match.group(2)
-                position = self._normalize_pk10_position(position)
-                if position:
-                    numbers = re.findall(r'\d{2}', numbers_str)
-                    numbers_by_position[position].extend([int(num) for num in numbers])
-            else:
-                parts = content_str.split(',')
-                for part in parts:
-                    if ':' in part:
-                        position, numbers_str = part.split(':', 1)
-                        position = self._normalize_pk10_position(position)
-                        if position:
-                            numbers = re.findall(r'\d{2}', numbers_str)
-                            numbers_by_position[position].extend([int(num) for num in numbers])
-        
-        # 处理冠军-01,02,03格式
-        elif '-' in content_str and re.search(r'\d{2}', content_str):
-            parts = content_str.split(',')
-            for part in parts:
-                if '-' in part:
-                    position, numbers_str = part.split('-', 1)
-                    position = self._normalize_pk10_position(position)
-                    numbers = re.findall(r'\d{2}', numbers_str)
-                    numbers_by_position[position].extend([int(num) for num in numbers])
-        
-        # 处理纯数字格式
-        else:
-            numbers = self.extract_numbers_from_content(content_str, 1, 10, is_pk10=True)
-            if numbers:
-                position = self._infer_pk10_position_from_content(content_str)
-                numbers_by_position[position].extend(numbers)
-        
-        # 去重
-        for position in numbers_by_position:
-            numbers_by_position[position] = list(set(numbers_by_position[position]))
-        
-        return numbers_by_position
+        """解析PK10号码类玩法内容 - 使用统一解析引擎"""
+        return self.unified_parser.extract_positions(content, 'PK10')
     
-    def _normalize_pk10_position(self, position):
-        """增强的PK10位置标准化 - 支持更多格式"""
-        position_mapping = {
-            # 中文标准格式
-            '冠军': '冠军', '第1名': '冠军', '第一名': '冠军', '1': '冠军', '1st': '冠军',
-            '前一': '冠军', '冠': '冠军',
-            '亚军': '亚军', '第2名': '亚军', '第二名': '亚军', '2': '亚军', '2nd': '亚军',
-            '亚': '亚军',
-            '季军': '第三名', '第3名': '第三名', '第三名': '第三名', '三名': '第三名', '3': '第三名', '3rd': '第三名',
-            '第4名': '第四名', '第四名': '第四名', '四名': '第四名', '4': '第四名', '4th': '第四名',
-            '第5名': '第五名', '第五名': '第五名', '五名': '第五名', '5': '第五名', '5th': '第五名',
-            '第6名': '第六名', '第六名': '第六名', '六名': '第六名', '6': '第六名', '6th': '第六名',
-            '第7名': '第七名', '第七名': '第七名', '七名': '第七名', '7': '第七名', '7th': '第七名',
-            '第8名': '第八名', '第八名': '第八名', '八名': '第八名', '8': '第八名', '8th': '第八名',
-            '第9名': '第九名', '第九名': '第九名', '九名': '第九名', '9': '第九名', '9th': '第九名',
-            '第10名': '第十名', '第十名': '第十名', '十名': '第十名', '10': '第十名', '10th': '第十名'
-        }
-        
-        position = str(position).strip()
-        
-        # 直接映射
-        if position in position_mapping:
-            return position_mapping[position]
-        
-        # 模糊匹配 - 增强逻辑
-        for key, value in position_mapping.items():
-            if key in position:
-                return value
-        
-        # 处理数字格式
-        if position.isdigit():
-            num = int(position)
-            if 1 <= num <= 10:
-                if num == 1:
-                    return '冠军'
-                elif num == 2:
-                    return '亚军'
-                elif num == 3:
-                    return '第三名'
-                elif num == 4:
-                    return '第四名'
-                elif num == 5:
-                    return '第五名'
-                elif num == 6:
-                    return '第六名'
-                elif num == 7:
-                    return '第七名'
-                elif num == 8:
-                    return '第八名'
-                elif num == 9:
-                    return '第九名'
-                elif num == 10:
-                    return '第十名'
-        
-        return position  # 返回原位置而不是未知
-
     def parse_3d_content(self, content):
-        """解析3D投注内容 - 增强竖线格式支持"""
-        content_str = str(content).strip()
-        
-        # 首先检查是否是竖线分隔格式
-        if '|' in content_str and any(char.isdigit() or char == '_' or char == ',' for char in content_str):
-            vertical_result = ContentParser.parse_3d_vertical_format(content_str)
-            if any(vertical_result.values()):  # 如果有解析结果
-                return vertical_result
-        
-        # 原有的解析逻辑
-        return ContentParser.parse_positional_bets(content, ['百位', '十位', '个位'])
+        """解析3D投注内容 - 使用统一解析引擎"""
+        return self.unified_parser.extract_positions(content, '3D')
     
     def parse_lhc_special_content(self, content):
         """解析六合彩特殊玩法内容，按照玩法-投注内容格式解析"""
@@ -1395,9 +1092,9 @@ class DataAnalyzer:
         
         # 新的解析逻辑：按照"玩法-投注内容"格式解析
         if '-' in content_str:
-            parts = content_str.split('-', 1)  # 只分割第一个"-"
-            play_method = parts[0].strip()      # 玩法部分
-            bet_content = parts[1].strip()      # 投注内容部分
+            parts = content_str.split('-', 1)
+            play_method = parts[0].strip()
+            bet_content = parts[1].strip()
             
             # 调试信息 - 显示解析过程
             
@@ -1409,92 +1106,27 @@ class DataAnalyzer:
     
     def extract_lhc_two_sides_content(self, content):
         """专门提取六合彩两面玩法的各种投注类型"""
-        content_str = str(content)
-        result = {
-            'normal_size': set(),    # 普通大小：大/小
-            'tail_size': set(),      # 尾大小：尾大/尾小
-            'parity': set(),         # 单双：单/双
-            'sum_parity': set(),     # 合数单双：合单/合双
-            'range_bet': set(),      # 区间：1-10,11-20,21-30,31-40,41-49
-            'animal_type': set(),    # 家禽野兽：家禽/野兽
-            'zodiac': set(),         # 生肖
-            'wave': set(),           # 波色：红波/蓝波/绿波
-            'other': set()           # 其他
-        }
-    
-        # 首先解析玩法-投注内容格式
-        clean_content = content_str
-        if '-' in content_str:
-            parts = content_str.split('-', 1)
-            clean_content = parts[1].strip()  # 只使用投注内容部分
-    
-        # 新增：特单、特双映射到普通单双
-        if '特单' in clean_content:
-            result['parity'].add('单')
-        if '特双' in clean_content:
-            result['parity'].add('双')
+        # 使用统一解析引擎
+        two_sides_result = self.unified_parser.extract_two_sides(content, 'LHC')
         
-        # 新增：特家肖映射到家禽，特野肖映射到野兽
-        if '特家肖' in clean_content or '家肖' in clean_content:
-            result['animal_type'].add('家禽')
-        if '特野肖' in clean_content or '野肖' in clean_content:
-            result['animal_type'].add('野兽')
-    
-        # 波色检测
-        if '红波' in clean_content and '红波-' not in content_str:
-            result['wave'].add('红波')
-        if '蓝波' in clean_content and '蓝波-' not in content_str:
-            result['wave'].add('蓝波')
-        if '绿波' in clean_content and '绿波-' not in content_str:
-            result['wave'].add('绿波')
-    
-        # 普通大小检测
-        if '大' in clean_content and '尾大' not in clean_content and '合大' not in clean_content and '特大' not in clean_content:
-            result['normal_size'].add('大')
-        if '小' in clean_content and '尾小' not in clean_content and '合小' not in clean_content and '特小' not in clean_content:
-            result['normal_size'].add('小')
-    
-        # 尾大小检测
-        if '尾大' in clean_content:
-            result['tail_size'].add('尾大')
-        if '尾小' in clean_content:
-            result['tail_size'].add('尾小')
-    
-        # 单双检测（特单特双已经在上面处理了，这里处理普通单双）
-        if '单' in clean_content and '合单' not in clean_content and '特单' not in clean_content:
-            result['parity'].add('单')
-        if '双' in clean_content and '合双' not in clean_content and '特双' not in clean_content:
-            result['parity'].add('双')
-    
-        # 合数单双检测
-        if '合单' in clean_content:
-            result['sum_parity'].add('合单')
-        if '合双' in clean_content:
-            result['sum_parity'].add('合双')
-    
-        # 区间检测
-        range_keywords = ['1-10', '11-20', '21-30', '31-40', '41-49']
-        for range_keyword in range_keywords:
-            if range_keyword in clean_content:
-                result['range_bet'].add(range_keyword)
-    
-        # 家禽野兽检测（特家肖特野肖已经在上面处理了，这里处理普通的家禽野兽）
-        if '家禽' in clean_content:
-            result['animal_type'].add('家禽')
-        if '野兽' in clean_content:
-            result['animal_type'].add('野兽')
-    
-        # 生肖检测
-        zodiacs = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']
-        for zodiac in zodiacs:
-            if zodiac in clean_content:
-                result['zodiac'].add(zodiac)
-    
-        # 清理空集合
-        for key in list(result.keys()):
-            if not result[key]:
-                del result[key]
-    
+        # 确保返回格式与原有代码兼容
+        result = {
+            'normal_size': set(),
+            'tail_size': set(),
+            'parity': set(),
+            'sum_parity': set(),
+            'range_bet': set(),
+            'animal_type': set(),
+            'zodiac': set(),
+            'wave': set(),
+            'other': set()
+        }
+        
+        # 映射到原有格式
+        for key in result:
+            if key in two_sides_result:
+                result[key] = two_sides_result[key]
+        
         return result
 
 # ==================== 玩法分类统一 ====================
@@ -1868,10 +1500,10 @@ class PlayCategoryNormalizer:
 # ==================== 分析引擎 ====================
 class AnalysisEngine:
     def __init__(self):
-        self.data_analyzer = DataAnalyzer()
+        self.data_analyzer = DataAnalyzer()  # 内部使用统一解析引擎
+        self.unified_parser = UnifiedContentParser()  # 也可以直接使用
         self.normalizer = PlayCategoryNormalizer()
-        self.seen_records = set()  # 用于记录已检测的记录
-        self.enhanced_parser = EnhancedContentParser()
+        self.seen_records = set()
 
     def parse_play_content_enhanced(self, content, current_category, lottery_type):
         """增强版内容解析 - 返回实际玩法分类和投注内容"""
