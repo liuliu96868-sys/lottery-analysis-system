@@ -1061,7 +1061,7 @@ class DataAnalyzer:
         return self.extract_numbers_from_content(content, min_num, max_num, is_pk10)
     
     def extract_numbers_from_content(self, content, min_num=0, max_num=49, is_pk10=False):
-        """从内容中提取数字 - 增强三军格式处理"""
+        """从内容中提取数字 - 修复版本：确保提取所有号码"""
         numbers = []
         content_str = str(content)
         
@@ -1077,12 +1077,23 @@ class DataAnalyzer:
                 # PK拾/赛车特殊处理：过滤掉"第X名"等玩法描述
                 content_str = re.sub(r'第\d+名-?', '', content_str)
             
-            # 提取数字
+            # 提取数字 - 改进：确保提取所有数字
             number_matches = re.findall(r'\b\d{1,2}\b', content_str)
             for match in number_matches:
                 num = int(match)
                 if min_num <= num <= max_num:
                     numbers.append(num)
+            
+            # 额外处理：尝试解析01,04,05格式
+            if not numbers:
+                # 查找逗号分隔的两位数格式
+                pattern = r'(\d{2})[,，](\d{2})[,，](\d{2})'
+                matches = re.findall(pattern, content_str)
+                for match_group in matches:
+                    for num_str in match_group:
+                        num = int(num_str)
+                        if min_num <= num <= max_num:
+                            numbers.append(num)
             
             return list(set(numbers))
         except Exception as e:
@@ -1967,11 +1978,15 @@ class AnalysisEngine:
             return current_category
     
     def _get_record_hash(self, record):
-        """生成记录的唯一哈希值 - 修复版本：确保不同号码不会被合并"""
+        """生成记录的唯一哈希值 - 修复版本：确保不同号码有不同哈希"""
+        if record is None:
+            return ""
+        
+        # 关键字段：确保不同的投注项有不同的哈希值
         key_parts = [
-            record['会员账号'],
-            record['彩种'], 
-            record['期号'],
+            record.get('会员账号', ''),
+            record.get('彩种', ''), 
+            record.get('期号', ''),
             record.get('玩法分类', ''),
             record.get('违规类型', ''),
             record.get('投注项', ''),  # 关键：包含具体投注项（如1,4,5）
@@ -1980,15 +1995,23 @@ class AnalysisEngine:
             str(record.get('位置数量', 0)),
             record.get('矛盾类型', '')
         ]
-        return hashlib.md5('|'.join(key_parts).encode()).hexdigest()
+        
+        # 确保所有部分都是字符串
+        key_parts = [str(part) if part is not None else '' for part in key_parts]
+        
+        key_string = '|'.join(key_parts)
+        logger.info(f"哈希计算: key_string={key_string}")
+        
+        return hashlib.md5(key_string.encode()).hexdigest()
     
     def _add_unique_result(self, results, result_type, record):
-        """添加唯一的结果记录 - 修复版本：增加空值检查"""
+        """添加唯一的结果记录 - 修复版本"""
         if record is None:  # 跳过None记录
             return False
             
         # 确保必要的字段存在
         if not record.get('会员账号') or not record.get('彩种') or not record.get('期号'):
+            logger.warning(f"记录缺少必要字段: {record}")
             return False
         
         record_hash = self._get_record_hash(record)
@@ -2000,8 +2023,13 @@ class AnalysisEngine:
             if result_type not in results:
                 results[result_type] = []
             
+            # 调试信息
+            logger.info(f"添加新记录: 哈希={record_hash}, 投注项={record.get('投注项')}, 位置数量={record.get('位置数量')}")
+            
             results[result_type].append(record)
             return True
+        
+        logger.info(f"跳过重复记录: 哈希={record_hash}, 投注项={record.get('投注项')}")
         return False
     
     def normalize_play_categories(self, df):
@@ -2518,7 +2546,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results):
-        """统一的多位置相同投注检测 - 修复版本：增加空值检查"""
+        """统一的多位置相同投注检测 - 完整修复版本"""
         
         # 收集所有位置的投注项
         position_bet_items = defaultdict(set)
@@ -2527,51 +2555,50 @@ class AnalysisEngine:
             content = str(row['内容'])
             category = str(row['玩法分类'])
             
+            # 调试信息
+            logger.info(f"解析投注内容: 账户={account}, 期号={period}, 分类={category}, 内容={content}")
+            
             # 修复：对于"1-5名"和"6-10名"，需要解析内容中的实际位置
             if category in ['1-5名', '1~5名', '1-5', '1~5', '1-5名定位胆']:
                 # 1-5名对应冠军、亚军、第三名、第四名、第五名
                 bets_by_position = self._parse_1_5_content_detailed(content)
                 
-                # 确保bets_by_position不是None
-                if bets_by_position is None:
-                    bets_by_position = defaultdict(set)
-                
                 for position, bet_items in bets_by_position.items():
-                    if bet_items and position:  # 确保position不是None或空
+                    if bet_items and position:  # 确保有投注项和有效位置
                         # 标准化位置名称
                         normalized_position = self.data_analyzer._normalize_pk10_position(position)
                         if normalized_position:
+                            logger.info(f"1-5名解析结果: 位置={normalized_position}, 投注项={bet_items}")
                             position_bet_items[normalized_position].update(bet_items)
                             
             elif category in ['6-10名', '6~10名', '6-10', '6~10', '6-10名定位胆']:
                 # 6-10名对应第六名、第七名、第八名、第九名、第十名
                 bets_by_position = self._parse_6_10_content_detailed(content)
                 
-                # 确保bets_by_position不是None
-                if bets_by_position is None:
-                    bets_by_position = defaultdict(set)
-                
                 for position, bet_items in bets_by_position.items():
-                    if bet_items and position:  # 确保position不是None或空
+                    if bet_items and position:  # 确保有投注项和有效位置
                         # 标准化位置名称
                         normalized_position = self.data_analyzer._normalize_pk10_position(position)
                         if normalized_position:
+                            logger.info(f"6-10名解析结果: 位置={normalized_position}, 投注项={bet_items}")
                             position_bet_items[normalized_position].update(bet_items)
                             
             else:
                 # 解析其他投注内容，提取投注项
                 bet_items_by_position = self._extract_all_bet_items_from_content(content)
                 
-                # 确保bet_items_by_position不是None
-                if bet_items_by_position is None:
-                    bet_items_by_position = defaultdict(set)
-                
                 for position, bet_items in bet_items_by_position.items():
-                    if bet_items and position:  # 确保position不是None或空
+                    if bet_items and position:  # 确保有投注项和有效位置
                         # 标准化位置名称
                         normalized_position = self.data_analyzer._normalize_pk10_position(position)
                         if normalized_position:
+                            logger.info(f"其他分类解析结果: 位置={normalized_position}, 投注项={bet_items}")
                             position_bet_items[normalized_position].update(bet_items)
+        
+        # 调试：显示收集到的投注项
+        logger.info(f"账户={account}, 期号={period}, 收集到的投注项:")
+        for position, items in position_bet_items.items():
+            logger.info(f"  位置={position}: {sorted(items)}")
         
         # 统计每个投注项出现的位置
         bet_item_to_positions = defaultdict(set)
@@ -2580,9 +2607,14 @@ class AnalysisEngine:
                 continue
                 
             for bet_item in bet_items:
-                if bet_item is None:  # 跳过None值
+                if bet_item is None or not bet_item:  # 跳过None值和空字符串
                     continue
                 bet_item_to_positions[bet_item].add(position)
+        
+        # 调试：显示每个投注项出现的位置
+        logger.info(f"账户={account}, 期号={period}, 投注项统计:")
+        for bet_item, positions in bet_item_to_positions.items():
+            logger.info(f"  投注项={bet_item}, 出现位置数={len(positions)}, 位置={sorted(positions)}")
         
         # 检测阈值配置
         MULTI_POSITION_THRESHOLD = 7  # 默认7个位置
@@ -2590,14 +2622,16 @@ class AnalysisEngine:
         
         # 检查每个投注项
         for bet_item, positions in bet_item_to_positions.items():
-            if bet_item is None:  # 跳过None键
+            if bet_item is None or not bet_item:  # 跳过None键
                 continue
                 
             position_count = len(positions)
             
+            logger.info(f"检查投注项: {bet_item}, 位置数量={position_count}")
+            
             if position_count >= MULTI_POSITION_THRESHOLD:
                 # 确定投注项类型
-                if bet_item and bet_item.isdigit():
+                if bet_item.isdigit():
                     item_type = '号码'
                 elif bet_item in ['大', '小']:
                     item_type = '大小'
@@ -2661,15 +2695,17 @@ class AnalysisEngine:
                     '排序权重': self._calculate_sort_weight({'位置数量': position_count}, result_key)
                 }
                 
+                logger.info(f"创建检测记录: {record}")
+                
                 self._add_unique_result(results, result_key, record)
     
     def _parse_1_5_content_detailed(self, content):
-        """详细解析1-5名投注内容 - 修复版本：确保始终返回defaultdict"""
+        """详细解析1-5名投注内容 - 修复版本：确保正确解析所有号码"""
         content_str = str(content).strip()
         bets_by_position = defaultdict(set)
         
         if not content_str:
-            return bets_by_position  # 确保返回defaultdict而不是None
+            return bets_by_position
         
         try:
             # 移除金额信息
@@ -2677,9 +2713,8 @@ class AnalysisEngine:
                 content_str = content_str.split('投注：')[0].strip()
             
             # 处理格式：第三名-01,04,05,第五名-01,04,05,亚军-01,04,05,第四名-01,04,05,冠军-01,04,05
+            # 按逗号分割，但要注意号码部分可能包含逗号
             parts = [part.strip() for part in content_str.split(',')]
-            
-            current_position = None
             
             for part in parts:
                 if not part:
@@ -2697,35 +2732,29 @@ class AnalysisEngine:
                         if not normalized_position:
                             continue
                         
-                        # 更新当前位置
-                        current_position = normalized_position
-                        
-                        # 检查投注部分是否包含逗号（多个投注项）
-                        if ',' in bet_part:
-                            # 处理01,04,05这种格式
-                            number_matches = re.findall(r'\d{2}', bet_part)
-                            for num_match in number_matches:
-                                standardized_item = self._standardize_bet_item(num_match)
-                                if standardized_item:
-                                    bets_by_position[current_position].add(standardized_item)
-                        else:
-                            # 单个投注项
-                            standardized_item = self._standardize_bet_item(bet_part)
-                            if standardized_item:
-                                bets_by_position[current_position].add(standardized_item)
+                        # 提取投注部分的所有数字
+                        # 处理01,04,05这种格式
+                        number_matches = re.findall(r'\d{2}', bet_part)
+                        for num_match in number_matches:
+                            # 标准化数字（01 -> 1, 04 -> 4, 05 -> 5）
+                            if num_match.startswith('0') and len(num_match) == 2:
+                                standardized_num = num_match[1]  # 去掉前导0
+                            else:
+                                standardized_num = num_match
+                            
+                            # 验证是否是有效数字（1-10）
+                            if standardized_num.isdigit():
+                                num = int(standardized_num)
+                                if 1 <= num <= 10:
+                                    bets_by_position[normalized_position].add(str(num))
                                 
                     except ValueError:
                         continue
-                elif current_position and part:
-                    # 处理连续的号码（如01,04,05中的后续部分）
-                    standardized_item = self._standardize_bet_item(part)
-                    if standardized_item:
-                        bets_by_position[current_position].add(standardized_item)
         
         except Exception as e:
             logger.error(f"解析1-5名内容失败: {content_str}, 错误: {str(e)}")
         
-        return bets_by_position  # 确保最后返回defaultdict
+        return bets_by_position
     
     def _parse_6_10_content_detailed(self, content):
         """详细解析6-10名投注内容 - 修复版本：确保始终返回defaultdict"""
@@ -2922,7 +2951,10 @@ class AnalysisEngine:
         return bet_items
 
     def _standardize_bet_item(self, bet_item):
-        """标准化投注项 - 修复版本：确保三位数号码正确解析"""
+        """标准化投注项 - 修复版本：确保正确标准化所有格式"""
+        if bet_item is None:
+            return None
+        
         bet_item = str(bet_item).strip()
         
         if not bet_item:
@@ -2942,7 +2974,8 @@ class AnalysisEngine:
         
         # 处理单个数字（如1, 4, 5）
         if re.match(r'^\d{1,2}$', bet_item):
-            return bet_item.lstrip('0')  # 去掉前导0
+            # 如果是01,02这样的格式，去掉前导0
+            return bet_item.lstrip('0')
         
         # 返回大小单双龙虎
         if bet_item in ['大', '小', '单', '双', '龙', '虎']:
@@ -2979,6 +3012,13 @@ class AnalysisEngine:
                 standardized_item = self._standardize_bet_item(bet_part)
                 if standardized_item:
                     bet_items_by_position[normalized_position].add(standardized_item)
+            # 尝试提取数字
+            else:
+                number_matches = re.findall(r'\d{1,2}', bet_part)
+                for num_match in number_matches:
+                    standardized_item = self._standardize_bet_item(num_match)
+                    if standardized_item:
+                        bet_items_by_position[normalized_position].add(standardized_item)
 
     def _analyze_pk10_all_positions_bet(self, account, lottery, period, group, results):
         """检测PK10十个位置投注完全相同内容的情况 - 严格版本"""
@@ -6369,20 +6409,28 @@ def main():
                 result_processor = ResultProcessor()
                 exporter = Exporter()
                 
+                # 重置分析引擎的缓存
+                analyzer.seen_records = set()
+                
                 # 数据清洗
                 df_clean = processor.clean_data(uploaded_file)
                 
                 if df_clean is not None and len(df_clean) > 0:
+                    st.success(f"✅ 成功加载 {len(df_clean)} 条记录")
+                    
+                    with st.expander("📊 数据预览", expanded=False):
+                        st.dataframe(df_clean.head(10))
+                    
                     # 统一玩法分类
+                    st.info("正在统一玩法分类...")
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
                     # 分析投注模式
-                    # 使用进度条
+                    st.info("正在分析投注模式...")
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
                     all_results = {}
-                    # 明确定义 lottery_types 变量
                     lottery_types = ['PK拾赛车', '时时彩', '六合彩', '快三', '三色彩', '3D系列']
                     
                     for i, lottery_type in enumerate(lottery_types):
@@ -6391,18 +6439,13 @@ def main():
                         try:
                             if lottery_type == 'PK拾赛车':
                                 all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
-                            elif lottery_type == '时时彩':
-                                all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
-                            elif lottery_type == '六合彩':
-                                all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
-                            elif lottery_type == '快三':
-                                all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
-                            elif lottery_type == '三色彩':
-                                all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
-                            elif lottery_type == '3D系列':
-                                all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
+                                # 显示调试信息
+                                if lottery_type in all_results and all_results[lottery_type]:
+                                    st.info(f"PK拾赛车分析完成，发现 {sum(len(v) for v in all_results[lottery_type].values())} 条记录")
                         except Exception as analysis_error:
                             logger.error(f"分析{lottery_type}时出现错误: {str(analysis_error)}")
+                            import traceback
+                            logger.error(f"详细错误信息: {traceback.format_exc()}")
                             st.warning(f"分析{lottery_type}时出现错误，跳过该彩种分析")
                             all_results[lottery_type] = defaultdict(list)
                         
@@ -6415,13 +6458,12 @@ def main():
                     for lottery_type, results in all_results.items():
                         type_count = sum(len(records) for records in results.values())
                         total_findings += type_count
-
-                    with st.expander("📊 数据预览", expanded=False):
-                        st.dataframe(df_clean.head(10))
                     
                     if total_findings == 0:
                         st.success("🎉 未发现可疑投注行为")
                     else:
+                        st.success(f"✅ 发现 {total_findings} 条可疑记录")
+                        
                         # 处理并显示结果
                         try:
                             account_results = result_processor.organize_results_by_account(all_results)
