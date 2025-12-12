@@ -2551,7 +2551,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '龙虎矛盾', record)
 
     def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results):
-        """统一的多位置相同投注检测 - 增强逗号分隔多号码支持"""
+        """统一的多位置相同投注检测 - 修复版本：准确识别实际投注位置"""
         
         # 收集所有位置的投注项
         position_bet_items = defaultdict(set)
@@ -2584,7 +2584,7 @@ class AnalysisEngine:
                             position_bet_items[normalized_position].update(bet_items)
                             
             else:
-                # 解析其他投注内容，提取投注项（增强多号码支持）
+                # 解析其他投注内容，提取投注项
                 bet_items_by_position = self._extract_all_bet_items_from_content(content)
                 
                 for position, bet_items in bet_items_by_position.items():
@@ -5786,116 +5786,11 @@ class ResultProcessor:
                 details.append(f"投注五行数: {record['投注五行数']}")
         
         return ' | '.join(details) if details else '无详情'
-
-    def merge_same_period_violations(self, records):
-        """合并同一期号的相同类型违规记录 - 修复版本"""
-        if not records:
-            return []
-        
-        # 按账号、期号、玩法分类、违规类型分组
-        groups = defaultdict(list)
-        for record in records:
-            # 使用多个字段作为分组键
-            key = (
-                record.get('会员账号', ''),
-                record.get('期号', ''),
-                record.get('玩法分类', ''),
-                record.get('违规类型', '')
-            )
-            groups[key].append(record)
-        
-        merged_records = []
-        
-        for key, group_records in groups.items():
-            if len(group_records) == 1:
-                # 只有一个记录，直接添加
-                merged_records.append(group_records[0])
-                continue
-            
-            # 合并多个记录
-            first_record = group_records[0].copy()
-            
-            # 收集所有投注项
-            bet_items = set()
-            all_positions = set()
-            
-            for record in group_records:
-                # 获取投注项
-                bet_item = record.get('投注项', '')
-                if bet_item:
-                    bet_items.add(bet_item)
-                
-                # 获取出现位置
-                positions_str = record.get('出现位置', '')
-                if positions_str:
-                    positions = positions_str.split('、')
-                    all_positions.update(positions)
-            
-            # 更新投注项（合并多个投注项）
-            if len(bet_items) > 1:
-                # 对数字类型的投注项进行排序
-                sorted_items = []
-                try:
-                    # 尝试按数字排序
-                    sorted_items = sorted(bet_items, key=lambda x: int(x) if x.isdigit() else x)
-                except:
-                    # 如果不能转换为数字，按字符串排序
-                    sorted_items = sorted(bet_items)
-                
-                first_record['投注项'] = ','.join(sorted_items)
-                
-                # 更新投注内容
-                bet_type = first_record.get('投注类型', '')
-                if bet_type == '号码':
-                    first_record['投注内容'] = f"号码{','.join(sorted_items)}"
-                    # 更新详细信息
-                    if '详细信息' in first_record:
-                        # 提取原来的位置信息
-                        details = first_record['详细信息']
-                        # 查找位置数量和出现位置
-                        if '位置数量' in details:
-                            # 保持原有的位置信息，只更新号码部分
-                            parts = details.split(' | ')
-                            new_parts = []
-                            for part in parts:
-                                if part.startswith('号码:'):
-                                    new_parts.append(f"号码: {','.join(sorted_items)}")
-                                else:
-                                    new_parts.append(part)
-                            first_record['详细信息'] = ' | '.join(new_parts)
-                        else:
-                            # 如果没有位置信息，创建新的详细信息
-                            position_count = first_record.get('位置数量', 0)
-                            if position_count > 0:
-                                first_record['详细信息'] = f"号码: {','.join(sorted_items)} | 位置数量: {position_count} | 出现位置: {'、'.join(sorted(all_positions))}"
-                            else:
-                                first_record['详细信息'] = f"号码: {','.join(sorted_items)}"
-            
-            # 更新出现位置和位置数量
-            if all_positions:
-                first_record['出现位置'] = '、'.join(sorted(all_positions))
-                # 重新计算位置数量
-                first_record['位置数量'] = len(all_positions)
-            
-            merged_records.append(first_record)
-        
-        return merged_records
     
     def optimize_display_records(self, records, max_records=5):
-        """优化显示记录 - 合并同一期号的相同类型投注"""
+        """优化显示记录 - 增强去重逻辑"""
         if not records:
             return []
-        
-        # 调试：显示原始记录
-        logger.info(f"优化显示记录 - 原始记录数: {len(records)}")
-        
-        # 先合并同一期号的相同类型投注
-        merged_records = self.merge_same_period_violations(records)
-        
-        logger.info(f"优化显示记录 - 合并后记录数: {len(merged_records)}")
-        
-        # 先合并同一期号的相同类型投注
-        merged_records = self.merge_same_period_violations(records)
         
         # 重置缓存（每次调用时重新计算）
         self.displayed_records_cache = set()
@@ -5914,7 +5809,7 @@ class ResultProcessor:
         unique_records = []
         seen_keys = set()
         
-        for record in merged_records:
+        for record in records:
             record_key = get_record_key(record)
             if record_key not in seen_keys:
                 seen_keys.add(record_key)
@@ -6135,12 +6030,9 @@ class ResultProcessor:
                             if representative_records:
                                 st.write(f"**{violation_type}** ({len(type_violations)}次)")
                                 
-                                # 合并同一期号的相同类型记录
-                                merged_records = self.merge_same_period_violations(representative_records)
-                                
                                 # 准备显示数据
                                 display_data = []
-                                for record in merged_records:
+                                for record in representative_records:
                                     display_record = {
                                         '期号': record['期号'],
                                         '玩法分类': record['玩法分类'],
@@ -6173,7 +6065,7 @@ class Exporter:
     """结果导出器"""
     
     def prepare_export_data(self, account_summary):
-        """准备导出数据 - 修正字段映射"""
+        """准备导出数据 - 增强版本，包含所有字段"""
         export_data = []
         
         for account, summary in account_summary.items():
@@ -6183,15 +6075,16 @@ class Exporter:
                         export_record = {
                             '会员账号': account,
                             '彩种': lottery,
-                            '期号': record['期号'],  # 注意：从record中获取期号
+                            '期号': record['期号'],
                             '玩法分类': record['玩法分类'],
-                            '违规类型': behavior_type,  # 使用 behavior_type 作为违规类型
-                            '投注内容': record.get('投注内容', ''),
-                            '投注项': record.get('投注项', ''),
-                            '投注类型': record.get('投注类型', ''),
-                            '位置数量': record.get('位置数量', 0),
-                            '出现位置': record.get('出现位置', ''),
-                            '详细信息': record.get('详细信息', '无详情')
+                            '行为类型': behavior_type,
+                            '违规类型': record.get('违规类型', ''),
+                            '投注内容': record.get('投注内容', ''),  # 添加投注内容
+                            '投注项': record.get('投注项', ''),      # 添加投注项
+                            '投注类型': record.get('投注类型', ''),  # 添加投注类型
+                            '位置数量': record.get('位置数量', 0),   # 添加位置数量
+                            '出现位置': record.get('出现位置', ''),  # 添加出现位置
+                            '详细信息': record.get('详细信息', '无详情')  # 添加详细信息
                         }
                         
                         # 添加矛盾类型
@@ -6343,11 +6236,15 @@ class Exporter:
                     export_record[content_field] = str(record['投注内容'])
                 elif behavior_type in ['多位置相同投注', '十个位置相同投注']:
                     # 对于多位置相同投注，构建投注内容
-                    if record.get('投注项'):
-                        if record.get('投注类型') == '号码':
+                    if record.get('投注类型') and record.get('投注项'):
+                        if record['投注类型'] == '号码':
                             export_record[content_field] = f"号码{record['投注项']}"
                         else:
                             export_record[content_field] = record['投注项']
+        
+        # 添加位置信息（3D系列专用）
+        if record.get('位置'):
+            export_record['位置'] = record['位置']
         
         # 确保投注内容字段一定存在
         if '投注内容' not in export_record or not export_record['投注内容']:
@@ -6456,7 +6353,7 @@ def main():
     st.markdown("---")
     
     st.sidebar.title("系统配置")
-
+    
     uploaded_file = st.sidebar.file_uploader(
         "上传Excel文件", 
         type=['xlsx', 'xls'],
