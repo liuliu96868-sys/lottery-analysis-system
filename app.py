@@ -168,11 +168,7 @@ class DataProcessor:
         """智能列识别 - 隐藏详情版本"""
         identified_columns = {}
         actual_columns = [str(col).strip() for col in df_columns]
-        
-        # 隐藏列名识别详情展开器
-        # with st.expander("🔍 列名识别详情", expanded=False):
-        #     st.info(f"检测到的列名: {actual_columns}")
-            
+
         for standard_col, possible_names in self.column_mapping.items():
             found = False
             for actual_col in actual_columns:
@@ -185,18 +181,12 @@ class DataProcessor:
                     similarity = len(set(possible_name_lower) & set(actual_col_lower)) / len(possible_name_lower)
                     if similarity > 0.7:  # 70%相似度阈值
                         identified_columns[actual_col] = standard_col
-                        # 隐藏识别成功消息
-                        # st.success(f"✅ 识别列名: {actual_col} -> {standard_col} (相似度: {similarity:.2f})")
                         found = True
                         break
                 
                 if found:
                     break
-            
-            # 隐藏未识别警告
-            # if not found:
-            #     st.warning(f"⚠️ 未识别到 {standard_col} 对应的列名")
-        
+
         return identified_columns
     
     def find_data_start(self, df):
@@ -236,12 +226,7 @@ class DataProcessor:
             account_lengths = df['会员账号'].str.len()
             if account_lengths.max() > 50:  # 假设正常账号长度不超过50个字符
                 issues.append("发现异常长度的会员账号")
-            
-            # 隐藏账号格式样本显示
-            # unique_accounts = df['会员账号'].unique()[:5]
-            # sample_info = " | ".join([f"'{acc}'" for acc in unique_accounts])
-            # st.info(f"会员账号格式样本: {sample_info}")
-        
+
         # 检查数据类型
         if '期号' in df.columns:
             # 确保期号为字符串类型
@@ -268,17 +253,7 @@ class DataProcessor:
         duplicate_count = df.duplicated().sum()
         if duplicate_count > 0:
             issues.append(f"发现 {duplicate_count} 条重复记录")
-        
-        # 隐藏数据质量问题展开器
-        # if issues:
-        #     with st.expander("⚠️ 数据质量问题", expanded=True):
-        #         for issue in issues:
-        #             st.warning(f"  - {issue}")
-        # else:
-        #     # 隐藏数据质量检查通过消息
-        #     # st.success("✅ 数据质量检查通过")
-        #     pass
-        
+
         return issues
 
     @staticmethod
@@ -378,8 +353,6 @@ class DataProcessor:
             column_mapping = self.smart_column_identification(df_clean.columns)
             if column_mapping:
                 df_clean = df_clean.rename(columns=column_mapping)
-                # 隐藏列名识别完成消息
-                # st.success("✅ 列名识别完成!")
                 for old_col, new_col in column_mapping.items():
                     logger.info(f"  {old_col} -> {new_col}")
             
@@ -430,8 +403,6 @@ class DataProcessor:
                     df_clean['金额'] = df_clean['金额'].apply(self.enhanced_extract_amount)
                     invalid_amounts = df_clean['金额'].isnull().sum()
                     if invalid_amounts > 0:
-                        # 隐藏无效金额记录警告
-                        # st.warning(f"发现 {invalid_amounts} 条无效金额记录")
                         pass
                 except Exception as e:
                     # 隐藏金额转换失败警告
@@ -440,10 +411,7 @@ class DataProcessor:
             
             # 数据质量验证 - 隐藏所有输出
             issues = self.validate_data_quality(df_clean)
-            
-            # 隐藏数据清洗完成消息
-            # st.success(f"✅ 数据清洗完成: {initial_count} -> {len(df_clean)} 条记录")
-            
+        
             return df_clean
             
         except Exception as e:
@@ -2312,30 +2280,7 @@ class AnalysisEngine:
                 for bet in bets:
                     numbers = self.data_analyzer.extract_numbers_from_content(bet, 1, 10, is_pk10=True)
                     all_numbers_by_position[position].update(numbers)
-        
-        # 注释掉原有的同一个号码多位置检测，因为现在有统一的检测方法
-        # # 新增：统计同一个号码出现在不同位置的情况
-        # number_to_positions = defaultdict(set)
-        # for position, numbers in all_numbers_by_position.items():
-        #     for number in numbers:
-        #         number_to_positions[number].add(position)
-        
-        # # 检查是否有号码出现在7个或以上位置
-        # for number, positions in number_to_positions.items():
-        #     if len(positions) >= 7:  # 阈值可以根据需要调整
-        #         record = {
-        #             '会员账号': account,
-        #             '彩种': lottery,
-        #             '期号': period,
-        #             '玩法分类': '多位置同号',
-        #             '号码': number,
-        #             '位置数量': len(positions),
-        #             '出现位置': '、'.join(sorted(positions)),
-        #             '投注内容': f"号码{number}在{len(positions)}个位置投注: {'、'.join(sorted(positions))}",
-        #             '排序权重': self._calculate_sort_weight({'位置数量': len(positions)}, '多位置同号')
-        #         }
-        #         self._add_unique_result(results, '多位置同号', record)
-        
+
         # 只保留原有的检查每个位置的超码逻辑
         for position, numbers in all_numbers_by_position.items():
             if len(numbers) >= THRESHOLD_CONFIG['PK10']['multi_number']:
@@ -5375,10 +5320,7 @@ class AnalysisEngine:
             return '1-5名'
         elif category_str in ['6-10名', '6~10名', '6-10', '6~10']:
             return '6-10名'
-        
-        # 调试输出，查看原始分类字符串
-        logger.info(f"原始分类字符串: {repr(category_str)}")
-        
+ 
         # 专门处理冠军、亚军、季军的特殊空格问题
         # 将各种空格（包括全角空格、不间断空格等）统一替换为普通空格
         import re
