@@ -2601,7 +2601,7 @@ class AnalysisEngine:
                 bet_item_to_positions[bet_item].add(position)
         
         # 检测阈值配置
-        MULTI_POSITION_THRESHOLD = 7  # 默认7个位置
+        MULTI_POSITION_THRESHOLD = THRESHOLD_CONFIG['PK10']['same_number_multi_position']
         
         # 检查每个投注项
         for bet_item, positions in bet_item_to_positions.items():
