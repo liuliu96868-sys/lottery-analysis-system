@@ -1417,9 +1417,7 @@ class DataAnalyzer:
             parts = content_str.split('-', 1)  # 只分割第一个"-"
             play_method = parts[0].strip()      # 玩法部分
             bet_content = parts[1].strip()      # 投注内容部分
-            
-            # 调试信息 - 显示解析过程
-            
+ 
             # 返回投注内容部分，这才是实际的下注内容
             return bet_content
         else:
@@ -6209,12 +6207,7 @@ class Exporter:
             
             # 创建DataFrame
             df_export = pd.DataFrame(export_data)
-            
-            # 调试：显示导出数据的列和样本
-            logger.info(f"导出数据列: {df_export.columns.tolist()}")
-            logger.info(f"导出数据样例:")
-            logger.info(df_export.head())
-            
+   
             # 确保投注内容列存在
             if '投注内容' not in df_export.columns:
                 st.warning("警告：导出数据中缺少'投注内容'列")
