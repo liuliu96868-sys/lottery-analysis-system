@@ -360,7 +360,6 @@ class DataProcessor:
             missing_columns = [col for col in self.required_columns if col not in df_clean.columns]
             if missing_columns and len(df_clean.columns) >= 4:
                 # 隐藏自动映射消息
-                # st.warning("自动映射列名...")
                 manual_mapping = {}
                 col_names = ['会员账号', '彩种', '期号', '内容', '玩法', '金额']
                 for i, col_name in enumerate(col_names):
@@ -405,10 +404,8 @@ class DataProcessor:
                     if invalid_amounts > 0:
                         pass
                 except Exception as e:
-                    # 隐藏金额转换失败警告
-                    # st.warning(f"金额列转换失败: {str(e)}")
-                    pass
-            
+                    logger.debug(f"金额转换失败: {str(e)}")
+         
             # 数据质量验证 - 隐藏所有输出
             issues = self.validate_data_quality(df_clean)
         
@@ -5323,14 +5320,12 @@ class AnalysisEngine:
         # 将各种空格（包括全角空格、不间断空格等）统一替换为普通空格
         import re
         category_normalized = re.sub(r'[ \t\u00A0\u3000\u2000-\u200B]+', ' ', category_str)
-        logger.info(f"标准化后分类: {repr(category_normalized)}")
         
         # 专门针对冠军、亚军、季军的精确匹配
         # 首先检查是否包含"龙虎_"前缀
         if '龙虎_' in category_normalized:
             # 提取"龙虎_"后面的部分
             position_part = category_normalized.split('龙虎_')[-1].strip()
-            logger.info(f"位置部分: {repr(position_part)}")
             
             # 冠军的各种变体 - 增强匹配
             if any(keyword in position_part for keyword in ['冠军', '冠 军', '冠　军', '冠军', '冠  军']):
