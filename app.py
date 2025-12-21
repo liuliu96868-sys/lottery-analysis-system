@@ -1197,20 +1197,62 @@ class DataAnalyzer:
         return list(set(found_elements))
     
     def extract_douniu_types(self, content):
-        """提取斗牛类型"""
-        content_str = str(content)
+        """增强版斗牛类型提取 - 处理投注内容中的金额信息"""
+        content_str = str(content).strip()
         bull_types = []
         
+        # 处理金额信息：移除"投注："之后的部分
+        if '投注：' in content_str:
+            content_str = content_str.split('投注：')[0].strip()
+        
         # 移除"斗牛-"前缀
-        clean_content = content_str.replace('斗牛-', '')
+        if content_str.startswith('斗牛-'):
+            content_str = content_str[3:]  # 移除"斗牛-"
+        elif content_str.startswith('鬥牛-'):
+            content_str = content_str[3:]  # 移除"鬥牛-"
         
-        # 斗牛类型列表
-        all_types = ['无牛', '牛一', '牛二', '牛三', '牛四', '牛五', 
-                    '牛六', '牛七', '牛八', '牛九', '牛牛']
+        # 如果内容为空，返回空列表
+        if not content_str:
+            return []
         
-        for bull_type in all_types:
-            if bull_type in clean_content:
-                bull_types.append(bull_type)
+        # 定义斗牛类型映射
+        type_mapping = {
+            '无牛': ['无牛', '無牛', '无', '0牛', '牛0'],
+            '牛一': ['牛一', '牛1', '一牛', '1牛'],
+            '牛二': ['牛二', '牛2', '二牛', '2牛'],
+            '牛三': ['牛三', '牛3', '三牛', '3牛'],
+            '牛四': ['牛四', '牛4', '四牛', '4牛'],
+            '牛五': ['牛五', '牛5', '五牛', '5牛'],
+            '牛六': ['牛六', '牛6', '六牛', '6牛'],
+            '牛七': ['牛七', '牛7', '七牛', '7牛'],
+            '牛八': ['牛八', '牛8', '八牛', '8牛'],
+            '牛九': ['牛九', '牛9', '九牛', '9牛'],
+            '牛牛': ['牛牛', '牛10', '十牛', '10牛', '牛十']
+        }
+        
+        # 按逗号分割
+        parts = [p.strip() for p in content_str.split(',')]
+        
+        for part in parts:
+            if not part:
+                continue
+                
+            found = False
+            for standard_type, variants in type_mapping.items():
+                for variant in variants:
+                    if variant == part:  # 完全匹配
+                        bull_types.append(standard_type)
+                        found = True
+                        break
+                if found:
+                    break
+            
+            # 如果还是没有匹配到，尝试直接匹配（可能是标准类型）
+            if not found:
+                for standard_type in type_mapping.keys():
+                    if standard_type == part:
+                        bull_types.append(standard_type)
+                        break
         
         return list(set(bull_types))
     
@@ -1635,6 +1677,22 @@ class PlayCategoryNormalizer:
             
             # 时时彩玩法
             '斗牛': '斗牛',
+            '斗牛': '斗牛',
+            '鬥牛': '斗牛',
+            '牛牛': '斗牛',
+            '无牛': '斗牛',
+            '牛一': '斗牛',
+            '牛二': '斗牛',
+            '牛三': '斗牛',
+            '牛四': '斗牛',
+            '牛五': '斗牛',
+            '牛六': '斗牛',
+            '牛七': '斗牛',
+            '牛八': '斗牛',
+            '牛九': '斗牛',
+            '牛10': '斗牛',
+            '牛牛-': '斗牛',
+            '斗牛玩法': '斗牛',
             '1-5球': '1-5球',
             '第1球': '第1球',
             '第2球': '第2球',
@@ -3412,23 +3470,73 @@ class AnalysisEngine:
                 self._add_unique_result(results, '两面矛盾', record)
     
     def _analyze_ssc_douniu(self, account, lottery, period, group, results):
+        """分析时时彩斗牛玩法 - 修正版本：正确处理重复记录"""
         douniu_group = group[group['玩法分类'] == '斗牛']
         
+        if douniu_group.empty:
+            return
+        
+        # 使用集合收集所有斗牛类型
+        all_bull_types = set()
+        
+        for _, row in douniu_group.iterrows():
+            content = str(row['内容'])
+            
+            # 提取斗牛类型
+            bull_types = self.data_analyzer.extract_douniu_types(content)
+            if bull_types:
+                all_bull_types.update(bull_types)
+        
+        # 斗牛全包检测（所有11种类型）
+        all_possible_types = {'无牛', '牛一', '牛二', '牛三', '牛四', '牛五', 
+                             '牛六', '牛七', '牛八', '牛九', '牛牛'}
+        
+        if all_possible_types.issubset(all_bull_types):
+            # 斗牛全包
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '斗牛',
+                '违规类型': '斗牛全包',
+                '号码数量': len(all_bull_types),
+                '投注内容': f"斗牛全包: {', '.join(sorted(all_bull_types))}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_bull_types)}, '斗牛全包')
+            }
+            self._add_unique_result(results, '斗牛全包', record)
+        elif len(all_bull_types) >= THRESHOLD_CONFIG['SSC']['douniu_multi']:
+            # 斗牛多码检测
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '斗牛',
+                '违规类型': '斗牛多码',
+                '号码数量': len(all_bull_types),
+                '投注内容': f"斗牛多类型投注: {', '.join(sorted(all_bull_types))}",
+                '排序权重': self._calculate_sort_weight({'号码数量': len(all_bull_types)}, '斗牛多码')
+            }
+            self._add_unique_result(results, '斗牛多码', record)
+        
+        # 斗牛矛盾投注检测（单条记录中的矛盾）
         for _, row in douniu_group.iterrows():
             content = str(row['内容'])
             bull_types = self.data_analyzer.extract_douniu_types(content)
             
-            if len(bull_types) >= THRESHOLD_CONFIG['SSC']['douniu_multi']:
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '斗牛',
-                    '号码数量': len(bull_types),
-                    '投注内容': ', '.join(sorted(bull_types)),
-                    '排序权重': self._calculate_sort_weight({'号码数量': len(bull_types)}, '斗牛多码')
-                }
-                self._add_unique_result(results, '斗牛多码', record)
+            # 如果单条记录中同时包含"无牛"和其他牛类型
+            if len(bull_types) > 1:
+                if '无牛' in bull_types:
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': '斗牛',
+                        '违规类型': '斗牛矛盾投注',
+                        '矛盾类型': '无牛与其他牛类型矛盾',
+                        '投注内容': content,
+                        '排序权重': self._calculate_sort_weight({'矛盾类型': '无牛与其他牛类型矛盾'}, '斗牛矛盾投注')
+                    }
+                    self._add_unique_result(results, '斗牛矛盾投注', record)
     
     def _analyze_ssc_dingwei(self, account, lottery, period, group, results):
         dingwei_categories = ['定位胆', '1-5球', '第1球', '第2球', '第3球', '第4球', '第5球']
