@@ -3470,7 +3470,7 @@ class AnalysisEngine:
                 self._add_unique_result(results, '两面矛盾', record)
     
     def _analyze_ssc_douniu(self, account, lottery, period, group, results):
-        """分析时时彩斗牛玩法 - 修正版本：正确处理重复记录"""
+        """分析时时彩斗牛玩法 - 修正版：只检测多码，不检测全包"""
         douniu_group = group[group['玩法分类'] == '斗牛']
         
         if douniu_group.empty:
@@ -3487,24 +3487,8 @@ class AnalysisEngine:
             if bull_types:
                 all_bull_types.update(bull_types)
         
-        # 斗牛全包检测（所有11种类型）
-        all_possible_types = {'无牛', '牛一', '牛二', '牛三', '牛四', '牛五', 
-                             '牛六', '牛七', '牛八', '牛九', '牛牛'}
-        
-        if all_possible_types.issubset(all_bull_types):
-            # 斗牛全包
-            record = {
-                '会员账号': account,
-                '彩种': lottery,
-                '期号': period,
-                '玩法分类': '斗牛',
-                '违规类型': '斗牛全包',
-                '号码数量': len(all_bull_types),
-                '投注内容': f"斗牛全包: {', '.join(sorted(all_bull_types))}",
-                '排序权重': self._calculate_sort_weight({'号码数量': len(all_bull_types)}, '斗牛全包')
-            }
-            self._add_unique_result(results, '斗牛全包', record)
-        elif len(all_bull_types) >= THRESHOLD_CONFIG['SSC']['douniu_multi']:
+        # 斗牛多码检测（使用配置的阈值）
+        if len(all_bull_types) >= THRESHOLD_CONFIG['SSC']['douniu_multi']:
             # 斗牛多码检测
             record = {
                 '会员账号': account,
@@ -3517,26 +3501,6 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_bull_types)}, '斗牛多码')
             }
             self._add_unique_result(results, '斗牛多码', record)
-        
-        # 斗牛矛盾投注检测（单条记录中的矛盾）
-        for _, row in douniu_group.iterrows():
-            content = str(row['内容'])
-            bull_types = self.data_analyzer.extract_douniu_types(content)
-            
-            # 如果单条记录中同时包含"无牛"和其他牛类型
-            if len(bull_types) > 1:
-                if '无牛' in bull_types:
-                    record = {
-                        '会员账号': account,
-                        '彩种': lottery,
-                        '期号': period,
-                        '玩法分类': '斗牛',
-                        '违规类型': '斗牛矛盾投注',
-                        '矛盾类型': '无牛与其他牛类型矛盾',
-                        '投注内容': content,
-                        '排序权重': self._calculate_sort_weight({'矛盾类型': '无牛与其他牛类型矛盾'}, '斗牛矛盾投注')
-                    }
-                    self._add_unique_result(results, '斗牛矛盾投注', record)
     
     def _analyze_ssc_dingwei(self, account, lottery, period, group, results):
         dingwei_categories = ['定位胆', '1-5球', '第1球', '第2球', '第3球', '第4球', '第5球']
