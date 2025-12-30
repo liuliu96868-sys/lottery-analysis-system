@@ -110,7 +110,7 @@ THRESHOLD_CONFIG = {
         'lianwei_threshold': 7,
         'wave_bet': 3,
         'five_elements': 4,
-        'value_size_contradiction': 4,  # 新增：六合彩特码变相超码阈值
+        'value_size_contradiction': 7,  # 新增：六合彩特码变相超码阈值
     },
     '3D': {
         'dingwei_multi': 7,  # 定位胆多码阈值
@@ -6756,7 +6756,7 @@ def main():
         lhc_numbers = st.slider("数字类多码阈值", 20, 50, THRESHOLD_CONFIG['LHC']['number_play'])
         lhc_zodiacs = st.slider("生肖类多码阈值", 5, 15, THRESHOLD_CONFIG['LHC']['zodiac_play'])
         lhc_tails = st.slider("尾数多码阈值", 5, 15, THRESHOLD_CONFIG['LHC']['tail_play'])
-        lhc_contradiction = st.slider("特码变相超码阈值", 3, 10, 4)  # 新增：特码变相超码阈值
+        lhc_contradiction = st.slider("特码变相超码阈值", 3, 20, 7)  # 新增：特码变相超码阈值
         
         THRESHOLD_CONFIG['LHC']['number_play'] = lhc_numbers
         THRESHOLD_CONFIG['LHC']['zodiac_play'] = lhc_zodiacs
