@@ -4987,9 +4987,9 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '和值矛盾')
             }
             self._add_unique_result(results, '和值矛盾', record)
-            return  # 如果检测到和值矛盾，也不进行和值变相超码检测
+            return  # 如果检测到和值矛盾，也不进行和值变相多码检测
         
-        # 和值变相超码检测 - 只有在没有检测到和值多码和和值矛盾时才进行
+        # 和值变相多码检测 - 只有在没有检测到和值多码和和值矛盾时才进行
         if all_numbers and len(all_numbers) < THRESHOLD_CONFIG['K3']['hezhi_multi_number']:
             small_values = [num for num in all_numbers if 3 <= num <= 10]
             big_values = [num for num in all_numbers if 11 <= num <= 18]
@@ -5043,9 +5043,9 @@ class AnalysisEngine:
                     '小号码数量': len(small_values),
                     '单号码数量': len(single_values),
                     '双号码数量': len(double_values),
-                    '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值变相超码')
+                    '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值变相多码')
                 }
-                self._add_unique_result(results, '和值变相超码', record)
+                self._add_unique_result(results, '和值变相多码', record)
 
     def _analyze_k3_dudan(self, account, lottery, period, group, results):
         """分析快三独胆玩法 - 单个记录检测"""
@@ -5298,7 +5298,7 @@ class AnalysisEngine:
             if record.get(field, 0) > 0:
                 weight += record[field] * 8
         
-        # 基于矛盾值 - 优化：和值变相超码按照相反方向的数量排序
+        # 基于矛盾值 - 优化：和值变相多码按照相反方向的数量排序
         if record.get('矛盾值', 0) > 0:
             weight += record['矛盾值'] * 5
         
@@ -5579,7 +5579,7 @@ class ResultProcessor:
             '快三': {
                 '和值多码': '和值多码',
                 '和值矛盾': '和值矛盾',  # 大小单双同时下注
-                '和值变相超码': '和值变相超码',  # 投注方向与号码分布矛盾
+                '和值变相多码': '和值变相多码',  # 投注方向与号码分布矛盾
                 '独胆多码': '独胆多码',
                 '不同号全包': '不同号全包',
                 '两面矛盾': '两面矛盾'
@@ -5736,8 +5736,8 @@ class ResultProcessor:
                 details.append(f"矛盾类型: {record['矛盾类型']}")
             return ' | '.join(details) if details else '无详情'
         
-        # 专门处理和值变相超码的显示
-        if '和值变相超码' in result_type:
+        # 专门处理和值变相多码的显示
+        if '和值变相多码' in result_type:
             if record.get('矛盾类型'):
                 details.append(f"矛盾类型: {record['矛盾类型']}")
             if record.get('矛盾值', 0) > 0:
@@ -6117,7 +6117,7 @@ class Exporter:
             # 快三相关
             '和值多码': ('号码数量', '投注内容'),
             '和值矛盾': (None, '投注内容'),  # 和值矛盾只有投注内容
-            '和值变相超码': ('矛盾值', '投注内容'),  # 和值变相超码有矛盾值
+            '和值变相多码': ('矛盾值', '投注内容'),  # 和值变相多码有矛盾值
             '独胆多码': ('号码数量', '投注内容'),
             '不同号全包': ('号码数量', '投注内容'),
             '两面矛盾': (None, '投注内容'),
@@ -6493,7 +6493,7 @@ def main():
         - ✅ PK拾/赛车系列：超码、冠亚和矛盾、两面矛盾、龙虎矛盾
         - ✅ 时时彩系列：定位胆多码、斗牛多码、两面矛盾、总和矛盾  
         - ✅ 六合彩系列：特码/正码多码、生肖多号码、尾数多码、波色五行矛盾
-        - ✅ 快三系列：和值多码、和值矛盾、和值变相超码、独胆多码、不同号全包、两面矛盾
+        - ✅ 快三系列：和值多码、和值矛盾、和值变相多码、独胆多码、不同号全包、两面矛盾
         - ✅ 三色彩系列：正码多码、两面矛盾、色波矛盾
         
         **🚀 技术优势**
