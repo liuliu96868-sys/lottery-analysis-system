@@ -3732,21 +3732,17 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            # 使用新的详细连肖检测
-            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
+            # 先调用其他检测方法
+            self._analyze_lhc_tema(account, lottery, period, group, results)  # 特码多码检测
+            self._analyze_lhc_two_sides(account, lottery, period, group, results)  # 两面玩法矛盾、区间多组等
             
-            # 使用新的详细连尾检测  
-            self._analyze_lhc_lianwei(account, lottery, period, group, results)
-            
-            # 新增：正码波色详细检测
-            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
-            
-            # 新增：特码变相超码检测（两种情况的检测已经在同一个方法中）
+            # 然后再调用变相超码检测（它需要知道其他检测的结果）
             self._analyze_lhc_tema_contradiction(account, lottery, period, group, results)
             
-            # 其他检测方法保持不变
-            self._analyze_lhc_tema(account, lottery, period, group, results)
-            self._analyze_lhc_two_sides(account, lottery, period, group, results)
+            # 其他检测方法
+            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
+            self._analyze_lhc_lianwei(account, lottery, period, group, results)
+            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
             self._analyze_lhc_zhengma(account, lottery, period, group, results)
             self._analyze_lhc_zhengma_1_6(account, lottery, period, group, results)
             self._analyze_lhc_zhengte(account, lottery, period, group, results)
@@ -3842,296 +3838,316 @@ class AnalysisEngine:
             self._add_unique_result(results, '特码多码', record)
 
     def _analyze_lhc_tema_contradiction(self, account, lottery, period, group, results):
-        """分析六合彩特码变相超码 - 检测两种情况：号码投注+两面投注，以及区间投注+两面投注"""
+        """分析六合彩特码变相超码 - 如果已经检测到特码多码、两面玩法矛盾或区间多组，则跳过变相超码检测"""
+        
+        # ==================== 首先检查是否已经触发了其他违规检测 ====================
+        
+        # 检查是否已经检测到以下违规类型
+        skip_contradiction = False
+        skip_interval_contradiction = False
+        
+        # 检查是否已经检测到特码多码
+        if '特码多码' in results and any(
+            r['会员账号'] == account and r['彩种'] == lottery and r['期号'] == period 
+            for r in results['特码多码']
+        ):
+            skip_contradiction = True
+        
+        # 检查是否已经检测到两面玩法矛盾
+        if '两面玩法矛盾' in results and any(
+            r['会员账号'] == account and r['彩种'] == lottery and r['期号'] == period 
+            for r in results['两面玩法矛盾']
+        ):
+            skip_contradiction = True
+        
+        # 检查是否已经检测到区间多组
+        if '区间多组' in results and any(
+            r['会员账号'] == account and r['彩种'] == lottery and r['期号'] == period 
+            for r in results['区间多组']
+        ):
+            skip_interval_contradiction = True
         
         # ==================== 情况1：检测特码玩法（号码）+ 两面玩法（大小单双） ====================
         
-        # 从特码玩法中提取号码
-        tema_group = group[group['玩法分类'] == '特码']
-        
-        if not tema_group.empty:
-            # 收集所有特码投注的号码
-            all_numbers = set()
+        # 如果已经触发特码多码或两面玩法矛盾，则跳过第一种情况的检测
+        if not skip_contradiction:
+            # 从特码玩法中提取号码
+            tema_group = group[group['玩法分类'] == '特码']
             
-            for _, row in tema_group.iterrows():
-                content = str(row['内容'])
+            if not tema_group.empty:
+                # 收集所有特码投注的号码
+                all_numbers = set()
                 
-                # 解析内容，提取号码
-                clean_content = self.data_analyzer.parse_lhc_special_content(content)
-                numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
-                all_numbers.update(numbers)
-            
-            # 检查是否达到特码多码阈值（31码）- 如果达到，则跳过变相超码检测
-            if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
-                # 已经达到特码多码阈值，由 _analyze_lhc_tema 方法处理，这里跳过
-                pass
-            else:
-                # 从两面玩法中提取特码相关的大小单双投注
-                two_sides_group = group[group['玩法分类'] == '两面']
-                
-                has_big = False
-                has_small = False
-                has_single = False
-                has_double = False
-                
-                for _, row in two_sides_group.iterrows():
+                for _, row in tema_group.iterrows():
                     content = str(row['内容'])
                     
-                    # 检查是否是特码相关的两面投注
-                    if '特码两面' in content or '特码-大' in content or '特码-小' in content or '特码-单' in content or '特码-双' in content:
-                        # 提取大小单双信息
-                        if '大' in content or '特码大' in content:
-                            has_big = True
-                        if '小' in content or '特码小' in content:
-                            has_small = True
-                        if '单' in content or '特码单' in content:
-                            has_single = True
-                        if '双' in content or '特码双' in content:
-                            has_double = True
+                    # 解析内容，提取号码
+                    clean_content = self.data_analyzer.parse_lhc_special_content(content)
+                    numbers = self.data_analyzer.extract_numbers_from_content(clean_content, 1, 49)
+                    all_numbers.update(numbers)
                 
-                # 检测第一种情况：有号码投注且有两面投注
-                if all_numbers and (has_big or has_small or has_single or has_double):
-                    # 计算号码的属性分布
-                    small_values = [num for num in all_numbers if 1 <= num <= 24]  # 六合彩小：1-24
-                    big_values = [num for num in all_numbers if 25 <= num <= 49]   # 六合彩大：25-49
-                    single_values = [num for num in all_numbers if num % 2 == 1]   # 单数
-                    double_values = [num for num in all_numbers if num % 2 == 0]   # 双数
+                # 检查是否达到特码多码阈值（31码）- 如果达到，则跳过变相超码检测
+                if len(all_numbers) >= THRESHOLD_CONFIG['LHC']['number_play']:
+                    # 已经达到特码多码阈值，由 _analyze_lhc_tema 方法处理，这里跳过
+                    pass
+                else:
+                    # 从两面玩法中提取特码相关的大小单双投注
+                    two_sides_group = group[group['玩法分类'] == '两面']
                     
-                    # 收集所有可能的矛盾
-                    possible_contradictions = []
+                    has_big = False
+                    has_small = False
+                    has_single = False
+                    has_double = False
                     
-                    # 1. 投注小但包含多个大号码
-                    if has_small and len(big_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                        contradiction_value = len(big_values)
-                        description = f"特码投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
-                        possible_contradictions.append(('大小矛盾', description, contradiction_value))
-                    
-                    # 2. 投注大但包含多个小号码
-                    if has_big and len(small_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                        contradiction_value = len(small_values)
-                        description = f"特码投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
-                        possible_contradictions.append(('大小矛盾', description, contradiction_value))
-                    
-                    # 3. 投注单但包含多个双号码
-                    if has_single and len(double_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                        contradiction_value = len(double_values)
-                        description = f"特码投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
-                        possible_contradictions.append(('单双矛盾', description, contradiction_value))
-                    
-                    # 4. 投注双但包含多个单号码
-                    if has_double and len(single_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                        contradiction_value = len(single_values)
-                        description = f"特码投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
-                        possible_contradictions.append(('单双矛盾', description, contradiction_value))
-                    
-                    # 如果有检测到矛盾，创建记录
-                    if possible_contradictions:
-                        # 按矛盾值降序排序
-                        possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+                    for _, row in two_sides_group.iterrows():
+                        content = str(row['内容'])
                         
-                        # 选择矛盾值最大的那个
-                        best_contradiction = possible_contradictions[0]
-                        contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+                        # 检查是否是特码相关的两面投注
+                        if '特码两面' in content or '特码-大' in content or '特码-小' in content or '特码-单' in content or '特码-双' in content:
+                            # 提取大小单双信息
+                            if '大' in content or '特码大' in content:
+                                has_big = True
+                            if '小' in content or '特码小' in content:
+                                has_small = True
+                            if '单' in content or '特码单' in content:
+                                has_single = True
+                            if '双' in content or '特码双' in content:
+                                has_double = True
+                    
+                    # 检测第一种情况：有号码投注且有两面投注
+                    if all_numbers and (has_big or has_small or has_single or has_double):
+                        # 计算号码的属性分布
+                        small_values = [num for num in all_numbers if 1 <= num <= 24]  # 六合彩小：1-24
+                        big_values = [num for num in all_numbers if 25 <= num <= 49]   # 六合彩大：25-49
+                        single_values = [num for num in all_numbers if num % 2 == 1]   # 单数
+                        double_values = [num for num in all_numbers if num % 2 == 0]   # 双数
                         
-                        # 构建投注内容显示
-                        bet_content_parts = []
-                        if has_big:
-                            bet_content_parts.append('大')
-                        if has_small:
-                            bet_content_parts.append('小')
-                        if has_single:
-                            bet_content_parts.append('单')
-                        if has_double:
-                            bet_content_parts.append('双')
-                        bet_content = ', '.join(bet_content_parts)
+                        # 收集所有可能的矛盾
+                        possible_contradictions = []
                         
-                        # 添加号码部分
-                        if all_numbers:
-                            numbers_content = ', '.join([f"{num:02d}" for num in sorted(all_numbers)])
-                            bet_content += f" | 号码: {numbers_content}"
+                        # 1. 投注小但包含多个大号码
+                        if has_small and len(big_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(big_values)
+                            description = f"特码投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
+                            possible_contradictions.append(('大小矛盾', description, contradiction_value))
                         
-                        record = {
-                            '会员账号': account,
-                            '彩种': lottery,
-                            '期号': period,
-                            '玩法分类': '特码',
-                            '违规类型': '特码变相超码',
-                            '矛盾类型': contradiction_desc,
-                            '矛盾值': contradiction_value,
-                            '投注内容': bet_content,
-                            '号码数量': len(all_numbers),
-                            '小号码数量': len(small_values),
-                            '大号码数量': len(big_values),
-                            '单号码数量': len(single_values),
-                            '双号码数量': len(double_values),
-                            '排序权重': self._calculate_sort_weight(
-                                {'矛盾值': contradiction_value, '号码数量': len(all_numbers)}, 
-                                '特码变相超码'
-                            )
-                        }
-                        self._add_unique_result(results, '特码变相超码', record)
+                        # 2. 投注大但包含多个小号码
+                        if has_big and len(small_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(small_values)
+                            description = f"特码投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
+                            possible_contradictions.append(('大小矛盾', description, contradiction_value))
+                        
+                        # 3. 投注单但包含多个双号码
+                        if has_single and len(double_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(double_values)
+                            description = f"特码投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
+                            possible_contradictions.append(('单双矛盾', description, contradiction_value))
+                        
+                        # 4. 投注双但包含多个单号码
+                        if has_double and len(single_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(single_values)
+                            description = f"特码投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
+                            possible_contradictions.append(('单双矛盾', description, contradiction_value))
+                        
+                        # 如果有检测到矛盾，创建记录
+                        if possible_contradictions:
+                            # 按矛盾值降序排序
+                            possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+                            
+                            # 选择矛盾值最大的那个
+                            best_contradiction = possible_contradictions[0]
+                            contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+                            
+                            # 构建投注内容显示
+                            bet_content_parts = []
+                            if has_big:
+                                bet_content_parts.append('大')
+                            if has_small:
+                                bet_content_parts.append('小')
+                            if has_single:
+                                bet_content_parts.append('单')
+                            if has_double:
+                                bet_content_parts.append('双')
+                            bet_content = ', '.join(bet_content_parts)
+                            
+                            # 添加号码部分
+                            if all_numbers:
+                                numbers_content = ', '.join([f"{num:02d}" for num in sorted(all_numbers)])
+                                bet_content += f" | 号码: {numbers_content}"
+                            
+                            record = {
+                                '会员账号': account,
+                                '彩种': lottery,
+                                '期号': period,
+                                '玩法分类': '特码',
+                                '违规类型': '特码变相超码',
+                                '矛盾类型': contradiction_desc,
+                                '矛盾值': contradiction_value,
+                                '投注内容': bet_content,
+                                '号码数量': len(all_numbers),
+                                '小号码数量': len(small_values),
+                                '大号码数量': len(big_values),
+                                '单号码数量': len(single_values),
+                                '双号码数量': len(double_values),
+                                '排序权重': self._calculate_sort_weight(
+                                    {'矛盾值': contradiction_value, '号码数量': len(all_numbers)}, 
+                                    '特码变相超码'
+                                )
+                            }
+                            self._add_unique_result(results, '特码变相超码', record)
         
         # ==================== 情况2：检测两面玩法中的区间投注+大小单双投注 ====================
         
-        # 获取所有两面玩法的记录
-        two_sides_group = group[group['玩法分类'] == '两面']
-        
-        if two_sides_group.empty:
-            return
-        
-        # 检查是否有特码区间投注和特码大小投注
-        has_interval_21_30 = False
-        has_interval_31_40 = False
-        has_interval_41_49 = False
-        has_tema_big = False
-        has_tema_small = False
-        has_tema_single = False
-        has_tema_double = False
-        
-        # 统计区间数量，用于检查是否达到区间多组阈值
-        interval_count = 0
-        
-        for _, row in two_sides_group.iterrows():
-            content = str(row['内容'])
+        # 如果已经触发区间多组，则跳过第二种情况的检测
+        if not skip_interval_contradiction:
+            # 获取所有两面玩法的记录
+            two_sides_group = group[group['玩法分类'] == '两面']
             
-            # 检查特码区间投注
-            if '特码两面' in content:
-                if '21-30' in content:
-                    has_interval_21_30 = True
-                    interval_count += 1
-                if '31-40' in content:
-                    has_interval_31_40 = True
-                    interval_count += 1
-                if '41-49' in content:
-                    has_interval_41_49 = True
-                    interval_count += 1
-            
-            # 检查特码大小单双投注
-            if '特码两面' in content:
-                if '大' in content:
-                    has_tema_big = True
-                if '小' in content:
-                    has_tema_small = True
-                if '单' in content:
-                    has_tema_single = True
-                if '双' in content:
-                    has_tema_double = True
-        
-        # 检查是否已经达到区间多组阈值（4个区间）- 如果达到，则跳过区间变相超码检测
-        if interval_count >= THRESHOLD_CONFIG['LHC']['range_bet']:
-            # 已经达到区间多组阈值，由 _analyze_lhc_two_sides 方法处理，这里跳过
-            return
-        
-        # 如果有区间投注和大小单双投注，进行检测
-        if (has_interval_21_30 or has_interval_31_40 or has_interval_41_49) and (has_tema_big or has_tema_small or has_tema_single or has_tema_double):
-            # 构建区间包含的号码集合
-            interval_numbers = set()
-            
-            if has_interval_21_30:
-                interval_numbers.update(range(21, 31))  # 21-30
-            
-            if has_interval_31_40:
-                interval_numbers.update(range(31, 41))  # 31-40
-            
-            if has_interval_41_49:
-                interval_numbers.update(range(41, 50))  # 41-49
-            
-            # 如果没有任何区间号码，直接返回
-            if not interval_numbers:
+            if two_sides_group.empty:
                 return
             
-            # 统计区间号码总数
-            total_interval_numbers = len(interval_numbers)
+            # 检查是否有特码区间投注和特码大小投注
+            has_interval_21_30 = False
+            has_interval_31_40 = False
+            has_interval_41_49 = False
+            has_tema_big = False
+            has_tema_small = False
+            has_tema_single = False
+            has_tema_double = False
             
-            # 检查是否达到特码多码阈值（31码）- 如果达到，则跳过区间变相超码检测
-            if total_interval_numbers >= THRESHOLD_CONFIG['LHC']['number_play']:
-                # 已经达到特码多码阈值，跳过区间变相超码检测
-                return
-            
-            # 计算区间号码的属性分布
-            interval_small = [num for num in interval_numbers if 1 <= num <= 24]
-            interval_big = [num for num in interval_numbers if 25 <= num <= 49]
-            interval_single = [num for num in interval_numbers if num % 2 == 1]
-            interval_double = [num for num in interval_numbers if num % 2 == 0]
-            
-            # 收集可能的矛盾
-            possible_contradictions = []
-            
-            # 1. 投注小但区间包含多个大号码
-            if has_tema_small and len(interval_big) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                contradiction_value = len(interval_big)
-                description = f"特码投注小但区间包含多个大号码(小{len(interval_small)}个,大{len(interval_big)}个)"
-                possible_contradictions.append(('大小矛盾', description, contradiction_value))
-            
-            # 2. 投注大但区间包含多个小号码
-            if has_tema_big and len(interval_small) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                contradiction_value = len(interval_small)
-                description = f"特码投注大但区间包含多个小号码(小{len(interval_small)}个,大{len(interval_big)}个)"
-                possible_contradictions.append(('大小矛盾', description, contradiction_value))
-            
-            # 3. 投注单但区间包含多个双号码
-            if has_tema_single and len(interval_double) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                contradiction_value = len(interval_double)
-                description = f"特码投注单但区间包含多个双号码(单{len(interval_single)}个,双{len(interval_double)}个)"
-                possible_contradictions.append(('单双矛盾', description, contradiction_value))
-            
-            # 4. 投注双但区间包含多个单号码
-            if has_tema_double and len(interval_single) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                contradiction_value = len(interval_single)
-                description = f"特码投注双但区间包含多个单号码(单{len(interval_single)}个,双{len(interval_double)}个)"
-                possible_contradictions.append(('单双矛盾', description, contradiction_value))
-            
-            # 如果有检测到矛盾，创建记录
-            if possible_contradictions:
-                # 按矛盾值降序排序
-                possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+            for _, row in two_sides_group.iterrows():
+                content = str(row['内容'])
                 
-                # 选择矛盾值最大的那个
-                best_contradiction = possible_contradictions[0]
-                contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+                # 检查特码区间投注
+                if '特码两面' in content:
+                    if '21-30' in content:
+                        has_interval_21_30 = True
+                    if '31-40' in content:
+                        has_interval_31_40 = True
+                    if '41-49' in content:
+                        has_interval_41_49 = True
                 
-                # 构建投注内容显示
-                interval_desc_parts = []
+                # 检查特码大小单双投注
+                if '特码两面' in content:
+                    if '大' in content:
+                        has_tema_big = True
+                    if '小' in content:
+                        has_tema_small = True
+                    if '单' in content:
+                        has_tema_single = True
+                    if '双' in content:
+                        has_tema_double = True
+            
+            # 如果有区间投注和大小单双投注，进行检测
+            if (has_interval_21_30 or has_interval_31_40 or has_interval_41_49) and (has_tema_big or has_tema_small or has_tema_single or has_tema_double):
+                # 构建区间包含的号码集合
+                interval_numbers = set()
+                
                 if has_interval_21_30:
-                    interval_desc_parts.append('21-30')
+                    interval_numbers.update(range(21, 31))  # 21-30
+                
                 if has_interval_31_40:
-                    interval_desc_parts.append('31-40')
+                    interval_numbers.update(range(31, 41))  # 31-40
+                
                 if has_interval_41_49:
-                    interval_desc_parts.append('41-49')
-                interval_desc = ', '.join(interval_desc_parts)
+                    interval_numbers.update(range(41, 50))  # 41-49
                 
-                bet_content_parts = []
-                if has_tema_big:
-                    bet_content_parts.append('大')
-                if has_tema_small:
-                    bet_content_parts.append('小')
-                if has_tema_single:
-                    bet_content_parts.append('单')
-                if has_tema_double:
-                    bet_content_parts.append('双')
-                bet_content = f"区间: {interval_desc} | 两面: {', '.join(bet_content_parts)}"
+                # 如果没有任何区间号码，直接返回
+                if not interval_numbers:
+                    return
                 
-                record = {
-                    '会员账号': account,
-                    '彩种': lottery,
-                    '期号': period,
-                    '玩法分类': '两面',
-                    '违规类型': '特码区间变相超码',
-                    '矛盾类型': contradiction_desc,
-                    '矛盾值': contradiction_value,
-                    '投注内容': bet_content,
-                    '号码数量': total_interval_numbers,
-                    '区间号码': interval_desc,
-                    '小号码数量': len(interval_small),
-                    '大号码数量': len(interval_big),
-                    '单号码数量': len(interval_single),
-                    '双号码数量': len(interval_double),
-                    '排序权重': self._calculate_sort_weight(
-                        {'矛盾值': contradiction_value, '号码数量': total_interval_numbers}, 
-                        '特码区间变相超码'
-                    )
-                }
-                self._add_unique_result(results, '特码区间变相超码', record)
+                # 统计区间号码总数
+                total_interval_numbers = len(interval_numbers)
+                
+                # 检查是否达到特码多码阈值（31码）- 如果达到，则跳过区间变相超码检测
+                if total_interval_numbers >= THRESHOLD_CONFIG['LHC']['number_play']:
+                    # 已经达到特码多码阈值，跳过区间变相超码检测
+                    return
+                
+                # 计算区间号码的属性分布
+                interval_small = [num for num in interval_numbers if 1 <= num <= 24]
+                interval_big = [num for num in interval_numbers if 25 <= num <= 49]
+                interval_single = [num for num in interval_numbers if num % 2 == 1]
+                interval_double = [num for num in interval_numbers if num % 2 == 0]
+                
+                # 收集可能的矛盾
+                possible_contradictions = []
+                
+                # 1. 投注小但区间包含多个大号码
+                if has_tema_small and len(interval_big) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_big)
+                    description = f"特码投注小但区间包含多个大号码(小{len(interval_small)}个,大{len(interval_big)}个)"
+                    possible_contradictions.append(('大小矛盾', description, contradiction_value))
+                
+                # 2. 投注大但区间包含多个小号码
+                if has_tema_big and len(interval_small) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_small)
+                    description = f"特码投注大但区间包含多个小号码(小{len(interval_small)}个,大{len(interval_big)}个)"
+                    possible_contradictions.append(('大小矛盾', description, contradiction_value))
+                
+                # 3. 投注单但区间包含多个双号码
+                if has_tema_single and len(interval_double) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_double)
+                    description = f"特码投注单但区间包含多个双号码(单{len(interval_single)}个,双{len(interval_double)}个)"
+                    possible_contradictions.append(('单双矛盾', description, contradiction_value))
+                
+                # 4. 投注双但区间包含多个单号码
+                if has_tema_double and len(interval_single) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_single)
+                    description = f"特码投注双但区间包含多个单号码(单{len(interval_single)}个,双{len(interval_double)}个)"
+                    possible_contradictions.append(('单双矛盾', description, contradiction_value))
+                
+                # 如果有检测到矛盾，创建记录
+                if possible_contradictions:
+                    # 按矛盾值降序排序
+                    possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+                    
+                    # 选择矛盾值最大的那个
+                    best_contradiction = possible_contradictions[0]
+                    contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+                    
+                    # 构建投注内容显示
+                    interval_desc_parts = []
+                    if has_interval_21_30:
+                        interval_desc_parts.append('21-30')
+                    if has_interval_31_40:
+                        interval_desc_parts.append('31-40')
+                    if has_interval_41_49:
+                        interval_desc_parts.append('41-49')
+                    interval_desc = ', '.join(interval_desc_parts)
+                    
+                    bet_content_parts = []
+                    if has_tema_big:
+                        bet_content_parts.append('大')
+                    if has_tema_small:
+                        bet_content_parts.append('小')
+                    if has_tema_single:
+                        bet_content_parts.append('单')
+                    if has_tema_double:
+                        bet_content_parts.append('双')
+                    bet_content = f"区间: {interval_desc} | 两面: {', '.join(bet_content_parts)}"
+                    
+                    record = {
+                        '会员账号': account,
+                        '彩种': lottery,
+                        '期号': period,
+                        '玩法分类': '两面',
+                        '违规类型': '特码区间变相超码',
+                        '矛盾类型': contradiction_desc,
+                        '矛盾值': contradiction_value,
+                        '投注内容': bet_content,
+                        '号码数量': total_interval_numbers,
+                        '区间号码': interval_desc,
+                        '小号码数量': len(interval_small),
+                        '大号码数量': len(interval_big),
+                        '单号码数量': len(interval_single),
+                        '双号码数量': len(interval_double),
+                        '排序权重': self._calculate_sort_weight(
+                            {'矛盾值': contradiction_value, '号码数量': total_interval_numbers}, 
+                            '特码区间变相超码'
+                        )
+                    }
+                    self._add_unique_result(results, '特码区间变相超码', record)
     
     def _analyze_lhc_two_sides(self, account, lottery, period, group, results):
         two_sides_group = group[group['玩法分类'] == '两面']
