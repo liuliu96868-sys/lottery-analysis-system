@@ -109,7 +109,8 @@ THRESHOLD_CONFIG = {
         'lianxiao_threshold': 7,
         'lianwei_threshold': 7,
         'wave_bet': 3,
-        'five_elements': 4
+        'five_elements': 4,
+        'value_size_contradiction': 4,  # 新增：六合彩特码变相超码阈值
     },
     '3D': {
         'dingwei_multi': 7,  # 定位胆多码阈值
@@ -1255,6 +1256,56 @@ class DataAnalyzer:
                         break
         
         return list(set(bull_types))
+
+    def extract_lhc_tema_numbers_and_sides(self, content):
+        """从六合彩特码内容中同时提取号码和两面投注"""
+        content_str = str(content)
+        result = {
+            'numbers': set(),
+            'has_big': False,
+            'has_small': False,
+            'has_single': False,
+            'has_double': False
+        }
+        
+        # 解析玩法-投注内容格式
+        if '-' in content_str:
+            parts = content_str.split('-', 1)
+            bet_content = parts[1].strip()
+        else:
+            bet_content = content_str
+        
+        # 提取号码 (1-49)
+        numbers = self.extract_numbers_from_content(bet_content, 1, 49)
+        result['numbers'].update(numbers)
+        
+        # 提取大小单双投注
+        content_lower = bet_content.lower()
+        
+        # 检查特码相关的大小单双投注
+        if '特码大' in content_lower or '特码-大' in content_lower or '特-大' in content_lower:
+            result['has_big'] = True
+        if '特码小' in content_lower or '特码-小' in content_lower or '特-小' in content_lower:
+            result['has_small'] = True
+        if '特码单' in content_lower or '特码-单' in content_lower or '特-单' in content_lower:
+            result['has_single'] = True
+        if '特码双' in content_lower or '特码-双' in content_lower or '特-双' in content_lower:
+            result['has_double'] = True
+        
+        # 如果以上都没匹配到，检查普通大小单双（特码玩法中可能直接写"大"、"小"等）
+        if not any([result['has_big'], result['has_small'], result['has_single'], result['has_double']]):
+            size_parity = self.extract_size_parity_from_content(bet_content)
+            for bet in size_parity:
+                if bet == '大':
+                    result['has_big'] = True
+                elif bet == '小':
+                    result['has_small'] = True
+                elif bet == '单':
+                    result['has_single'] = True
+                elif bet == '双':
+                    result['has_double'] = True
+        
+        return result
     
     def parse_pk10_gyh_content(self, content):
         """解析PK10冠亚和玩法内容"""
@@ -3688,6 +3739,9 @@ class AnalysisEngine:
             # 新增：正码波色详细检测
             self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
             
+            # 新增：特码变相超码检测（必须在特码检测之前）
+            self._analyze_lhc_tema_contradiction(account, lottery, period, group, results)
+            
             # 其他检测方法保持不变
             self._analyze_lhc_tema(account, lottery, period, group, results)
             self._analyze_lhc_two_sides(account, lottery, period, group, results)
@@ -3784,6 +3838,122 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '特码多码')
             }
             self._add_unique_result(results, '特码多码', record)
+
+    def _analyze_lhc_tema_contradiction(self, account, lottery, period, group, results):
+        """分析六合彩特码变相超码 - 类似快三和值变相超码检测"""
+        # 获取特码玩法的记录
+        tema_group = group[group['玩法分类'] == '特码']
+        
+        if tema_group.empty:
+            return
+        
+        # 收集所有特码投注
+        all_numbers = set()
+        has_big = False
+        has_small = False
+        has_single = False
+        has_double = False
+        
+        for _, row in tema_group.iterrows():
+            content = str(row['内容'])
+            
+            # 解析内容，提取号码和两面投注
+            analysis_result = self.data_analyzer.extract_lhc_tema_numbers_and_sides(content)
+            
+            all_numbers.update(analysis_result['numbers'])
+            
+            if analysis_result['has_big']:
+                has_big = True
+            if analysis_result['has_small']:
+                has_small = True
+            if analysis_result['has_single']:
+                has_single = True
+            if analysis_result['has_double']:
+                has_double = True
+        
+        # 如果没有号码投注或没有两面投注，则不进行变相超码检测
+        if not all_numbers or not (has_big or has_small or has_single or has_double):
+            return
+        
+        # 计算号码的属性分布
+        small_values = [num for num in all_numbers if 1 <= num <= 24]  # 六合彩小：1-24
+        big_values = [num for num in all_numbers if 25 <= num <= 49]   # 六合彩大：25-49
+        single_values = [num for num in all_numbers if num % 2 == 1]   # 单数
+        double_values = [num for num in all_numbers if num % 2 == 0]   # 双数
+        
+        # 收集所有可能的矛盾
+        possible_contradictions = []
+        
+        # 1. 投注小但包含多个大号码
+        if has_small and len(big_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+            contradiction_value = len(big_values)
+            description = f"特码投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
+            possible_contradictions.append(('大小矛盾', description, contradiction_value))
+        
+        # 2. 投注大但包含多个小号码
+        if has_big and len(small_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+            contradiction_value = len(small_values)
+            description = f"特码投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
+            possible_contradictions.append(('大小矛盾', description, contradiction_value))
+        
+        # 3. 投注单但包含多个双号码
+        if has_single and len(double_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+            contradiction_value = len(double_values)
+            description = f"特码投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
+            possible_contradictions.append(('单双矛盾', description, contradiction_value))
+        
+        # 4. 投注双但包含多个单号码
+        if has_double and len(single_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+            contradiction_value = len(single_values)
+            description = f"特码投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
+            possible_contradictions.append(('单双矛盾', description, contradiction_value))
+        
+        # 如果有检测到矛盾，优先展示数量最多的矛盾组合
+        if possible_contradictions:
+            # 按矛盾值降序排序
+            possible_contradictions.sort(key=lambda x: x[2], reverse=True)
+            
+            # 选择矛盾值最大的那个
+            best_contradiction = possible_contradictions[0]
+            contradiction_type, contradiction_desc, contradiction_value = best_contradiction
+            
+            # 构建投注内容显示
+            bet_content_parts = []
+            if has_big:
+                bet_content_parts.append('大')
+            if has_small:
+                bet_content_parts.append('小')
+            if has_single:
+                bet_content_parts.append('单')
+            if has_double:
+                bet_content_parts.append('双')
+            bet_content = ', '.join(bet_content_parts)
+            
+            # 添加号码部分
+            if all_numbers:
+                numbers_content = ', '.join([f"{num:02d}" for num in sorted(all_numbers)])
+                bet_content += f" | 号码: {numbers_content}"
+            
+            record = {
+                '会员账号': account,
+                '彩种': lottery,
+                '期号': period,
+                '玩法分类': '特码',
+                '违规类型': '特码变相超码',
+                '矛盾类型': contradiction_desc,
+                '矛盾值': contradiction_value,
+                '投注内容': bet_content,
+                '号码数量': len(all_numbers),
+                '小号码数量': len(small_values),
+                '大号码数量': len(big_values),
+                '单号码数量': len(single_values),
+                '双号码数量': len(double_values),
+                '排序权重': self._calculate_sort_weight(
+                    {'矛盾值': contradiction_value, '号码数量': len(all_numbers)}, 
+                    '特码变相超码'
+                )
+            }
+            self._add_unique_result(results, '特码变相超码', record)
     
     def _analyze_lhc_two_sides(self, account, lottery, period, group, results):
         two_sides_group = group[group['玩法分类'] == '两面']
@@ -4987,9 +5157,9 @@ class AnalysisEngine:
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '和值矛盾')
             }
             self._add_unique_result(results, '和值矛盾', record)
-            return  # 如果检测到和值矛盾，也不进行和值变相多码检测
+            return  # 如果检测到和值矛盾，也不进行和值变相超码检测
         
-        # 和值变相多码检测 - 只有在没有检测到和值多码和和值矛盾时才进行
+        # 和值变相超码检测 - 只有在没有检测到和值多码和和值矛盾时才进行
         if all_numbers and len(all_numbers) < THRESHOLD_CONFIG['K3']['hezhi_multi_number']:
             small_values = [num for num in all_numbers if 3 <= num <= 10]
             big_values = [num for num in all_numbers if 11 <= num <= 18]
@@ -5043,9 +5213,9 @@ class AnalysisEngine:
                     '小号码数量': len(small_values),
                     '单号码数量': len(single_values),
                     '双号码数量': len(double_values),
-                    '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值变相多码')
+                    '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值变相超码')
                 }
-                self._add_unique_result(results, '和值变相多码', record)
+                self._add_unique_result(results, '和值变相超码', record)
 
     def _analyze_k3_dudan(self, account, lottery, period, group, results):
         """分析快三独胆玩法 - 单个记录检测"""
@@ -5298,7 +5468,7 @@ class AnalysisEngine:
             if record.get(field, 0) > 0:
                 weight += record[field] * 8
         
-        # 基于矛盾值 - 优化：和值变相多码按照相反方向的数量排序
+        # 基于矛盾值 - 优化：和值变相超码按照相反方向的数量排序
         if record.get('矛盾值', 0) > 0:
             weight += record['矛盾值'] * 5
         
@@ -5579,7 +5749,7 @@ class ResultProcessor:
             '快三': {
                 '和值多码': '和值多码',
                 '和值矛盾': '和值矛盾',  # 大小单双同时下注
-                '和值变相多码': '和值变相多码',  # 投注方向与号码分布矛盾
+                '和值变相超码': '和值变相超码',  # 投注方向与号码分布矛盾
                 '独胆多码': '独胆多码',
                 '不同号全包': '不同号全包',
                 '两面矛盾': '两面矛盾'
@@ -5587,6 +5757,7 @@ class ResultProcessor:
             '六合彩': {
                 '数字类多码': '数字类多码',
                 '特码多码': '特码多码',
+                '特码变相超码': '特码变相超码',
                 '正码多码': '正码多码',
                 '正码1-6多码': '正码1-6多码',
                 '正特多码': '正特多码',
@@ -5736,8 +5907,8 @@ class ResultProcessor:
                 details.append(f"矛盾类型: {record['矛盾类型']}")
             return ' | '.join(details) if details else '无详情'
         
-        # 专门处理和值变相多码的显示
-        if '和值变相多码' in result_type:
+        # 专门处理和值变相超码的显示
+        if '和值变相超码' in result_type:
             if record.get('矛盾类型'):
                 details.append(f"矛盾类型: {record['矛盾类型']}")
             if record.get('矛盾值', 0) > 0:
@@ -6117,49 +6288,63 @@ class Exporter:
             # 快三相关
             '和值多码': ('号码数量', '投注内容'),
             '和值矛盾': (None, '投注内容'),  # 和值矛盾只有投注内容
-            '和值变相多码': ('矛盾值', '投注内容'),  # 和值变相多码有矛盾值
+            '和值变相超码': ('矛盾值', '投注内容'),  # 和值变相超码有矛盾值
             '独胆多码': ('号码数量', '投注内容'),
             '不同号全包': ('号码数量', '投注内容'),
             '两面矛盾': (None, '投注内容'),
-
-            # 多位置相同投注相关（新增）
+            
+            # 多位置相同投注相关
             '多位置相同投注': ('位置数量', '投注内容'),
             '十个位置相同投注': ('位置数量', '投注内容'),
             
-            # 六合彩相关
+            # 六合彩相关 - 基础检测
             '数字类多码': ('号码数量', '投注内容'),
             '特码多码': ('号码数量', '投注内容'),
             '正码多码': ('号码数量', '投注内容'),
             '正码1-6多码': ('号码数量', '投注内容'),
             '正特多码': ('号码数量', '投注内容'),
+            
+            # 六合彩生肖类
             '生肖类多码': ('生肖数量', '投注内容'),
             '平特多肖': ('生肖数量', '投注内容'),
             '特肖多肖': ('生肖数量', '投注内容'),
             '一肖多肖': ('生肖数量', '投注内容'),
+            
+            # 六合彩尾数类
             '尾数多码': ('尾数数量', '投注内容'),
             '尾数头尾多码': ('尾数数量', '投注内容'),
             '特尾多尾': ('尾数数量', '投注内容'),
             '全尾多尾': ('尾数数量', '投注内容'),
+            
+            # 六合彩连肖连尾
             '连肖多肖': ('生肖数量', '投注内容'),
             '连尾多尾': ('尾数数量', '投注内容'),
+            
+            # 六合彩区间波色五行
             '区间多组': ('投注区间数', '投注内容'),
             '波色三组': ('投注波色数', '投注内容'),
             '色波三组': ('投注波色数', '投注内容'),
-            # 修改为只记录全包情况
             '色波全包': ('投注波色数', '投注内容'),
             '半波单双全包': ('投注半波数', '投注内容'),
             '半波大小全包': ('投注半波数', '投注内容'),
             '五行多组': ('投注五行数', '投注内容'),
+            
+            # 六合彩矛盾检测
             '两面玩法矛盾': (None, '投注内容'),
             '正码1-6矛盾': (None, '投注内容'),
+            
+            # 六合彩正码波色全包
             '正码一波色全包': ('投注波色数', '投注内容'),
             '正码二波色全包': ('投注波色数', '投注内容'),
             '正码三波色全包': ('投注波色数', '投注内容'),
             '正码四波色全包': ('投注波色数', '投注内容'),
             '正码五波色全包': ('投注波色数', '投注内容'),
             '正码六波色全包': ('投注波色数', '投注内容'),
+            
+            # 六合彩正特矛盾
             '正特矛盾': (None, '投注内容'),
-            # 正特具体位置
+            
+            # 六合彩正特具体位置
             '正1特多码': ('号码数量', '投注内容'),
             '正2特多码': ('号码数量', '投注内容'),
             '正3特多码': ('号码数量', '投注内容'),
@@ -6172,23 +6357,26 @@ class Exporter:
             '正4特矛盾': (None, '投注内容'),
             '正5特矛盾': (None, '投注内容'),
             '正6特矛盾': (None, '投注内容'),
-
-            # 半波相关
-            '半波全包': (None, '投注内容'),
-            '半波多组投注': ('投注波色数', '投注内容'),       
             
-             # 三色彩相关
+            # 六合彩半波相关
+            '半波全包': (None, '投注内容'),
+            '半波多组投注': ('投注波色数', '投注内容'),
+            
+            # 六合彩特码变相超码（新增）
+            '特码变相超码': ('矛盾值', '投注内容'),
+            
+            # 三色彩相关
             '色波全包': ('投注波色数', '投注内容'),
             '色波红绿投注': ('投注波色数', '投注内容'),
-
-             # 3D系列相关
+            
+            # 3D系列相关
             '百位多码': ('号码数量', '投注内容'),
             '十位多码': ('号码数量', '投注内容'),
             '个位多码': ('号码数量', '投注内容'),
             '两面矛盾': (None, '投注内容'),
             '定位胆多码': ('号码数量', '投注内容'),
-
-             # 时时彩相关
+            
+            # 时时彩相关
             '斗牛多码': ('号码数量', '投注内容'),
             '定位胆多码': ('号码数量', '投注内容'),
             '第1球多码': ('号码数量', '投注内容'),
@@ -6196,11 +6384,6 @@ class Exporter:
             '第3球多码': ('号码数量', '投注内容'),
             '第4球多码': ('号码数量', '投注内容'),
             '第5球多码': ('号码数量', '投注内容'),
-            '第6球多码': ('号码数量', '投注内容'),
-            '第7球多码': ('号码数量', '投注内容'),
-            '第8球多码': ('号码数量', '投注内容'),
-            '第9球多码': ('号码数量', '投注内容'),
-            '第10球多码': ('号码数量', '投注内容'),
             
             # PK10相关
             '超码': ('号码数量', '投注内容'),
@@ -6249,7 +6432,7 @@ class Exporter:
                         else:
                             export_record[content_field] = record['投注项']
         
-        # 添加位置信息（3D系列专用）
+        # 添加位置信息（3D系列、PK10、时时彩等位置投注专用）
         if record.get('位置'):
             export_record['位置'] = record['位置']
         
@@ -6262,6 +6445,38 @@ class Exporter:
                     export_record['投注内容'] = f"号码{record['投注项']}"
                 else:
                     export_record['投注内容'] = record['投注项']
+        
+        # 添加特码变相超码特有的数量字段
+        if behavior_type == '特码变相超码':
+            for field in ['小号码数量', '大号码数量', '单号码数量', '双号码数量']:
+                if field in record:
+                    export_record[field] = record[field]
+        
+        # 添加和值变相超码特有的数量字段
+        if behavior_type == '和值变相超码':
+            for field in ['小号码数量', '大号码数量', '单号码数量', '双号码数量']:
+                if field in record:
+                    export_record[field] = record[field]
+        
+        # 添加通用的数量字段
+        for field in ['号码数量', '生肖数量', '尾数数量', '投注区间数', 
+                     '投注波色数', '投注五行数', '投注半波数', '位置数量']:
+            if field in record:
+                export_record[field] = record[field]
+        
+        # 添加矛盾类型信息（如果存在）
+        if record.get('矛盾类型'):
+            export_record['矛盾类型'] = record['矛盾类型']
+        
+        # 添加投注项和投注类型（多位置相同投注等）
+        if record.get('投注项'):
+            export_record['投注项'] = record['投注项']
+        if record.get('投注类型'):
+            export_record['投注类型'] = record['投注类型']
+        
+        # 添加出现位置信息（多位置相同投注）
+        if record.get('出现位置'):
+            export_record['出现位置'] = record['出现位置']
     
     def export_to_excel(self, account_summary, filename_prefix="彩票分析结果"):
         """导出分析结果到Excel文件"""
@@ -6382,9 +6597,12 @@ def main():
         lhc_numbers = st.slider("数字类多码阈值", 20, 50, THRESHOLD_CONFIG['LHC']['number_play'])
         lhc_zodiacs = st.slider("生肖类多码阈值", 5, 15, THRESHOLD_CONFIG['LHC']['zodiac_play'])
         lhc_tails = st.slider("尾数多码阈值", 5, 15, THRESHOLD_CONFIG['LHC']['tail_play'])
+        lhc_contradiction = st.slider("特码变相超码阈值", 3, 10, 4)  # 新增：特码变相超码阈值
+        
         THRESHOLD_CONFIG['LHC']['number_play'] = lhc_numbers
         THRESHOLD_CONFIG['LHC']['zodiac_play'] = lhc_zodiacs
         THRESHOLD_CONFIG['LHC']['tail_play'] = lhc_tails
+        THRESHOLD_CONFIG['LHC']['value_size_contradiction'] = lhc_contradiction  # 新增
     
     with st.sidebar.expander("快三系列阈值"):
         k3_hezhi = st.slider("和值多码阈值", 5, 20, THRESHOLD_CONFIG['K3']['hezhi_multi_number'])
@@ -6493,7 +6711,7 @@ def main():
         - ✅ PK拾/赛车系列：超码、冠亚和矛盾、两面矛盾、龙虎矛盾
         - ✅ 时时彩系列：定位胆多码、斗牛多码、两面矛盾、总和矛盾  
         - ✅ 六合彩系列：特码/正码多码、生肖多号码、尾数多码、波色五行矛盾
-        - ✅ 快三系列：和值多码、和值矛盾、和值变相多码、独胆多码、不同号全包、两面矛盾
+        - ✅ 快三系列：和值多码、和值矛盾、和值变相超码、独胆多码、不同号全包、两面矛盾
         - ✅ 三色彩系列：正码多码、两面矛盾、色波矛盾
         
         **🚀 技术优势**
