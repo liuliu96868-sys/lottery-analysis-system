@@ -3827,8 +3827,7 @@ class AnalysisEngine:
                         }
                         self._add_unique_result(results, result_key, record)
     
-    def _analyze_lhc_tema(self, account, lottery, period, group, results):
-            def _analyze_lhc_tema(self, account, lottery, period, group, results, period_amount):
+    def _analyze_lhc_tema(self, account, lottery, period, group, results, period_amount):
         """分析六合彩特码玩法 - 添加金额参数"""
         tema_group = group[group['玩法分类'] == '特码']
         
