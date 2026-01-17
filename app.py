@@ -1501,23 +1501,28 @@ class DataAnalyzer:
         return ContentParser.parse_positional_bets(content, ['百位', '十位', '个位'])
     
     def parse_lhc_special_content(self, content):
-        """解析六合彩特殊玩法内容，按照玩法-投注内容格式解析"""
-        content_str = str(content)
+        """解析六合彩特殊玩法内容，按照玩法-投注内容格式解析 - 修复版本"""
+        content_str = str(content).strip()
+        
+        # 处理简写形式：特大、特小、特单、特双
+        if content_str in ['特大', '特小', '特单', '特双']:
+            # 简写形式，返回空字符串（因为投注内容就是玩法本身）
+            return ''
         
         # 新的解析逻辑：按照"玩法-投注内容"格式解析
         if '-' in content_str:
             parts = content_str.split('-', 1)  # 只分割第一个"-"
             play_method = parts[0].strip()      # 玩法部分
             bet_content = parts[1].strip()      # 投注内容部分
- 
+    
             # 返回投注内容部分，这才是实际的下注内容
             return bet_content
         else:
             # 如果没有"-"，整个内容作为投注内容
-            return content_str.strip()
+            return content_str
     
     def extract_lhc_two_sides_content(self, content):
-        """专门提取六合彩两面玩法的各种投注类型"""
+        """专门提取六合彩两面玩法的各种投注类型 - 修复版本"""
         content_str = str(content)
         result = {
             'normal_size': set(),    # 普通大小：大/小
@@ -1543,11 +1548,11 @@ class DataAnalyzer:
         if '特双' in clean_content:
             result['parity'].add('双')
         
-        # 新增：特家肖映射到家禽，特野肖映射到野兽
-        if '特家肖' in clean_content or '家肖' in clean_content:
-            result['animal_type'].add('家禽')
-        if '特野肖' in clean_content or '野肖' in clean_content:
-            result['animal_type'].add('野兽')
+        # 新增：特大、特小映射到普通大小 - 关键修复
+        if '特大' in clean_content or clean_content == '特大':
+            result['normal_size'].add('大')
+        if '特小' in clean_content or clean_content == '特小':
+            result['normal_size'].add('小')
     
         # 波色检测
         if '红波' in clean_content and '红波-' not in content_str:
@@ -1557,7 +1562,7 @@ class DataAnalyzer:
         if '绿波' in clean_content and '绿波-' not in content_str:
             result['wave'].add('绿波')
     
-        # 普通大小检测
+        # 普通大小检测（排除特码大小）
         if '大' in clean_content and '尾大' not in clean_content and '合大' not in clean_content and '特大' not in clean_content:
             result['normal_size'].add('大')
         if '小' in clean_content and '尾小' not in clean_content and '合小' not in clean_content and '特小' not in clean_content:
@@ -1587,7 +1592,13 @@ class DataAnalyzer:
             if range_keyword in clean_content:
                 result['range_bet'].add(range_keyword)
     
-        # 家禽野兽检测（特家肖特野肖已经在上面处理了，这里处理普通的家禽野兽）
+        # 家禽野兽检测
+        if '特家肖' in clean_content or '家肖' in clean_content:
+            result['animal_type'].add('家禽')
+        if '特野肖' in clean_content or '野肖' in clean_content:
+            result['animal_type'].add('野兽')
+        
+        # 普通的家禽野兽
         if '家禽' in clean_content:
             result['animal_type'].add('家禽')
         if '野兽' in clean_content:
@@ -3838,7 +3849,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '特码多码', record)
 
     def _analyze_lhc_tema_contradiction(self, account, lottery, period, group, results):
-        """分析六合彩特码变相超码 - 如果已经检测到特码多码、两面玩法矛盾或区间多组，则跳过变相超码检测"""
+        """分析六合彩特码变相超码 - 修复版本"""
         
         # ==================== 首先检查是否已经触发了其他违规检测 ====================
         
@@ -3902,17 +3913,21 @@ class AnalysisEngine:
                     for _, row in two_sides_group.iterrows():
                         content = str(row['内容'])
                         
-                        # 检查是否是特码相关的两面投注
-                        if '特码两面' in content or '特码-大' in content or '特码-小' in content or '特码-单' in content or '特码-双' in content:
-                            # 提取大小单双信息
-                            if '大' in content or '特码大' in content:
-                                has_big = True
-                            if '小' in content or '特码小' in content:
-                                has_small = True
-                            if '单' in content or '特码单' in content:
-                                has_single = True
-                            if '双' in content or '特码双' in content:
-                                has_double = True
+                        # 使用extract_lhc_two_sides_content方法解析内容
+                        two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
+                        
+                        # 检查普通大小（normal_size）和普通单双（parity）
+                        normal_size = two_sides_analysis.get('normal_size', set())
+                        parity = two_sides_analysis.get('parity', set())
+                        
+                        if '大' in normal_size:
+                            has_big = True
+                        if '小' in normal_size:
+                            has_small = True
+                        if '单' in parity:
+                            has_single = True
+                        if '双' in parity:
+                            has_double = True
                     
                     # 检测第一种情况：有号码投注且有两面投注
                     if all_numbers and (has_big or has_small or has_single or has_double):
@@ -4027,16 +4042,19 @@ class AnalysisEngine:
                     if '41-49' in content:
                         has_interval_41_49 = True
                 
-                # 检查特码大小单双投注
-                if '特码两面' in content:
-                    if '大' in content:
-                        has_tema_big = True
-                    if '小' in content:
-                        has_tema_small = True
-                    if '单' in content:
-                        has_tema_single = True
-                    if '双' in content:
-                        has_tema_double = True
+                # 使用extract_lhc_two_sides_content方法检查特码大小单双投注
+                two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
+                normal_size = two_sides_analysis.get('normal_size', set())
+                parity = two_sides_analysis.get('parity', set())
+                
+                if '大' in normal_size:
+                    has_tema_big = True
+                if '小' in normal_size:
+                    has_tema_small = True
+                if '单' in parity:
+                    has_tema_single = True
+                if '双' in parity:
+                    has_tema_double = True
             
             # 如果有区间投注和大小单双投注，进行检测
             if (has_interval_21_30 or has_interval_31_40 or has_interval_41_49) and (has_tema_big or has_tema_small or has_tema_single or has_tema_double):
