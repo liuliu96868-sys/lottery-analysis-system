@@ -4198,7 +4198,7 @@ class AnalysisEngine:
                     }
                     self._add_unique_result(results, '特码区间变相超码', record)
     
-    def _analyze_lhc_two_sides(self, account, lottery, period, group, results):def _analyze_lhc_two_sides(self, account, lottery, period, group, results, period_amount):
+    def _analyze_lhc_two_sides(self, account, lottery, period, group, results, period_amount):
         two_sides_group = group[group['玩法分类'] == '两面']
         
         all_bets = {
