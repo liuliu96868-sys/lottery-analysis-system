@@ -4934,7 +4934,7 @@ class AnalysisEngine:
                     '彩种': lottery,
                     '期号': period,
                     '玩法分类': category,
-                    '矛盾类型': '、'.join
+                    '矛盾类型': '、'.join(conflict_types),
                     '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正特矛盾')
                 }
