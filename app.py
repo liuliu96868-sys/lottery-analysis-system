@@ -2211,8 +2211,8 @@ class AnalysisEngine:
         return current_category
 
     # =============== PK10分析方法 ===============
-    def analyze_pk10_patterns(self, df):
-        """分析PK拾/赛车系列投注模式"""
+    def analyze_pk10_patterns(self, df, period_amount_dict):
+        """分析PK拾/赛车系列投注模式 - 添加金额参数"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'PK10']
@@ -2223,23 +2223,25 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
+            # 获取该期投注金额
+            period_key = f"{account}_{lottery}_{period}"
+            period_amount = period_amount_dict.get(period_key, 0.0)
+            
             # 统一的投注项多位置检测（覆盖号码、大小、单双、龙虎）
-            self._analyze_pk10_bet_item_multiple_positions(account, lottery, period, group, results)
+            self._analyze_pk10_bet_item_multiple_positions(account, lottery, period, group, results, period_amount)
             
             # 原有的其他检测方法
-            self._analyze_pk10_two_sides(account, lottery, period, group, results)
-            self._analyze_pk10_gyh(account, lottery, period, group, results)
-            self._analyze_pk10_number_plays(account, lottery, period, group, results)
-            self._analyze_pk10_independent_plays(account, lottery, period, group, results)
-            self._analyze_pk10_qianyi_plays(account, lottery, period, group, results)
-            self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results)
-            
-            # 移除原有的十个位置相同投注检测（已包含在统一检测中）
-            # self._analyze_pk10_all_positions_bet(account, lottery, period, group, results)
+            self._analyze_pk10_two_sides(account, lottery, period, group, results, period_amount)
+            self._analyze_pk10_gyh(account, lottery, period, group, results, period_amount)
+            self._analyze_pk10_number_plays(account, lottery, period, group, results, period_amount)
+            self._analyze_pk10_independent_plays(account, lottery, period, group, results, period_amount)
+            self._analyze_pk10_qianyi_plays(account, lottery, period, group, results, period_amount)
+            self._analyze_pk10_dragon_tiger_detailed(account, lottery, period, group, results, period_amount)
         
         return results
     
-    def _analyze_pk10_two_sides(self, account, lottery, period, group, results):
+    def _analyze_pk10_two_sides(self, account, lottery, period, group, results, period_amount):
+
         """分析PK10两面玩法"""
         two_sides_categories = ['两面', '双面']
         
@@ -2283,11 +2285,12 @@ class AnalysisEngine:
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
                     '投注内容': f"{position}-{','.join(sorted(bets))}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
                 }
                 self._add_unique_result(results, '两面矛盾', record)
     
-    def _analyze_pk10_gyh(self, account, lottery, period, group, results):
+    def _analyze_pk10_gyh(self, account, lottery, period, group, results, period_amount):
         """分析PK10冠亚和玩法"""
         gyh_categories = ['冠亚和', '冠亚和_大小单双', '冠亚和_和值']
         
@@ -2316,6 +2319,7 @@ class AnalysisEngine:
                 '玩法分类': '冠亚和',
                 '号码数量': len(all_numbers),
                 '投注内容': ', '.join([str(num) for num in sorted(all_numbers)]),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '冠亚和多码')
             }
             self._add_unique_result(results, '冠亚和多码', record)
@@ -2336,6 +2340,7 @@ class AnalysisEngine:
                 '玩法分类': '冠亚和',
                 '矛盾类型': '、'.join(conflicts),
                 '投注内容': ', '.join(sorted(all_size_parity)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '冠亚和矛盾')
             }
             self._add_unique_result(results, '冠亚和矛盾', record)
@@ -2359,7 +2364,8 @@ class AnalysisEngine:
             }
             self._add_unique_result(results, '冠亚和矛盾', record)
     
-    def _analyze_pk10_number_plays(self, account, lottery, period, group, results):
+    def _analyze_pk10_number_plays(self, account, lottery, period, group, results, period_amount):
+
         """分析PK10号码类玩法 - 增强位置判断"""
         number_categories = [
             '1-5名', '6-10名', '冠军', '前一', '亚军', '第三名', '第四名', '第五名',
@@ -2409,6 +2415,7 @@ class AnalysisEngine:
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}: {', '.join([f'{num:02d}' for num in sorted(numbers)])}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, f'{position}多码')
                 }
                 self._add_unique_result(results, '超码', record)
@@ -2439,7 +2446,7 @@ class AnalysisEngine:
         
         return None
     
-    def _analyze_pk10_independent_plays(self, account, lottery, period, group, results):
+    def _analyze_pk10_independent_plays(self, account, lottery, period, group, results, period_amount):
         """分析PK10独立玩法（大小单双）- 排除龙虎，避免重复检测"""
         # 只保留大小和单双的独立玩法，排除龙虎（因为龙虎有专门的检测）
         independent_categories = [
@@ -2491,11 +2498,12 @@ class AnalysisEngine:
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
                     '投注内容': f"{position}-{','.join(sorted(bets))}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '独立玩法矛盾')
                 }
                 self._add_unique_result(results, '独立玩法矛盾', record)
     
-    def _analyze_pk10_qianyi_plays(self, account, lottery, period, group, results):
+    def _analyze_pk10_qianyi_plays(self, account, lottery, period, group, results, period_amount):
         """分析PK10前一玩法"""
         qianyi_categories = ['前一']
         
@@ -2521,6 +2529,7 @@ class AnalysisEngine:
                     '位置': '冠军',  # 显示为冠军位置
                     '号码数量': len(numbers),
                     '投注内容': ', '.join([f'{num:02d}' for num in sorted(numbers)]),
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '超码')
                 }
                 self._add_unique_result(results, '超码', record)
@@ -2573,7 +2582,7 @@ class AnalysisEngine:
         
         return '未知位置'
 
-    def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results):
+    def _analyze_pk10_dragon_tiger_detailed(self, account, lottery, period, group, results, period_amount):
         """PK10龙虎详细检测 - 清理版本"""
         dragon_tiger_categories = [
             '龙虎_冠军', '龙虎_亚军', '龙虎_季军', '龙虎', '龙虎_第四名', '龙虎_第五名', 
@@ -2608,11 +2617,12 @@ class AnalysisEngine:
                     '位置': position,
                     '矛盾类型': '龙虎矛盾',
                     '投注内容': f"{position}-{','.join(sorted(bets))}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '龙虎矛盾'}, '龙虎矛盾')
                 }
                 self._add_unique_result(results, '龙虎矛盾', record)
 
-    def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results):
+    def _analyze_pk10_bet_item_multiple_positions(self, account, lottery, period, group, results, period_amount):
         """统一的多位置相同投注检测 - 修复版本：准确识别实际投注位置"""
         
         # 收集所有位置的投注项
@@ -2732,6 +2742,7 @@ class AnalysisEngine:
                     '出现位置': '、'.join(sorted(positions)),
                     '详细信息': details,
                     '投注内容': bet_content,
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'位置数量': position_count}, result_key)
                 }
                 
@@ -3170,6 +3181,7 @@ class AnalysisEngine:
                     '投注位置数': 10,
                     '投注类型': bet_description,
                     '投注内容': f"十个位置相同投注: {bet_description}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'投注位置数': 10}, '十个位置相同投注')
                 }
                 self._add_unique_result(results, '十个位置相同投注', record)
@@ -3442,8 +3454,8 @@ class AnalysisEngine:
         return '、'.join(bet_types) if bet_types else '混合投注'
 
     # =============== 时时彩分析方法 ===============
-    def analyze_ssc_patterns(self, df):
-        """分析时时彩投注模式"""
+    def analyze_ssc_patterns(self, df, period_amount_dict):
+        """分析时时彩投注模式 - 添加金额参数"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'SSC']
@@ -3454,15 +3466,19 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            self._analyze_ssc_two_sides(account, lottery, period, group, results)
-            self._analyze_ssc_douniu(account, lottery, period, group, results)
-            self._analyze_ssc_dingwei(account, lottery, period, group, results)
-            self._analyze_ssc_zonghe(account, lottery, period, group, results)
-            self._analyze_ssc_dingwei_detailed(account, lottery, period, group, results)
+            # 获取该期投注金额
+            period_key = f"{account}_{lottery}_{period}"
+            period_amount = period_amount_dict.get(period_key, 0.0)
+            
+            self._analyze_ssc_two_sides(account, lottery, period, group, results, period_amount)
+            self._analyze_ssc_douniu(account, lottery, period, group, results, period_amount)
+            self._analyze_ssc_dingwei(account, lottery, period, group, results, period_amount)
+            self._analyze_ssc_zonghe(account, lottery, period, group, results, period_amount)
+            self._analyze_ssc_dingwei_detailed(account, lottery, period, group, results, period_amount)
         
         return results
     
-    def _analyze_ssc_two_sides(self, account, lottery, period, group, results):
+    def _analyze_ssc_two_sides(self, account, lottery, period, group, results, period_amount):
         two_sides_group = group[group['玩法分类'] == '两面']
         
         total_bets = set()
@@ -3510,6 +3526,7 @@ class AnalysisEngine:
                 '玩法分类': '两面',
                 '矛盾类型': '、'.join(conflicts),
                 '投注内容': f"总和:{','.join(sorted(total_bets))}",
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
             }
             self._add_unique_result(results, '两面矛盾', record)
@@ -3529,11 +3546,12 @@ class AnalysisEngine:
                     '玩法分类': '两面',
                     '矛盾类型': f"{ball}{'、'.join(ball_conflicts)}",
                     '投注内容': f"{ball}:{','.join(sorted(bets))}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': f"{ball}{'、'.join(ball_conflicts)}"}, '两面矛盾')
                 }
                 self._add_unique_result(results, '两面矛盾', record)
     
-    def _analyze_ssc_douniu(self, account, lottery, period, group, results):
+    def _analyze_ssc_douniu(self, account, lottery, period, group, results, period_amount):
         """分析时时彩斗牛玩法 - 修正版：只检测多码，不检测全包"""
         douniu_group = group[group['玩法分类'] == '斗牛']
         
@@ -3562,11 +3580,12 @@ class AnalysisEngine:
                 '违规类型': '斗牛多码',
                 '号码数量': len(all_bull_types),
                 '投注内容': f"斗牛多类型投注: {', '.join(sorted(all_bull_types))}",
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_bull_types)}, '斗牛多码')
             }
             self._add_unique_result(results, '斗牛多码', record)
     
-    def _analyze_ssc_dingwei(self, account, lottery, period, group, results):
+    def _analyze_ssc_dingwei(self, account, lottery, period, group, results, period_amount):
         dingwei_categories = ['定位胆', '1-5球', '第1球', '第2球', '第3球', '第4球', '第5球']
         
         dingwei_group = group[group['玩法分类'].isin(dingwei_categories)]
@@ -3624,11 +3643,12 @@ class AnalysisEngine:
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
                 }
                 self._add_unique_result(results, '定位胆多码', record)
     
-    def _analyze_ssc_zonghe(self, account, lottery, period, group, results):
+    def _analyze_ssc_zonghe(self, account, lottery, period, group, results, period_amount):
         zonghe_group = group[group['玩法分类'] == '总和']
         
         all_bets = set()
@@ -3652,11 +3672,12 @@ class AnalysisEngine:
                 '玩法分类': '总和',
                 '矛盾类型': '、'.join(conflicts),
                 '投注内容': ', '.join(sorted(all_bets)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '总和矛盾')
             }
             self._add_unique_result(results, '总和矛盾', record)
     
-    def _analyze_ssc_dingwei_detailed(self, account, lottery, period, group, results):
+    def _analyze_ssc_dingwei_detailed(self, account, lottery, period, group, results, period_amount):
         """时时彩定位胆细分位置检测 - 增强位置判断"""
         dingwei_detailed_categories = [
             '定位_万位', '定位_千位', '定位_百位', '定位_十位', '定位_个位',
@@ -3703,6 +3724,7 @@ class AnalysisEngine:
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
                 }
                 self._add_unique_result(results, '定位胆多码', record)
@@ -3727,8 +3749,8 @@ class AnalysisEngine:
         return None
 
     # =============== 六合彩分析方法 ===============
-    def analyze_lhc_patterns(self, df):
-        """分析六合彩投注模式"""
+    def analyze_lhc_patterns(self, df, period_amount_dict):
+        """分析六合彩投注模式 - 添加金额参数"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'LHC']
@@ -3737,36 +3759,40 @@ class AnalysisEngine:
             return results
         
         # 使用独立的尾数检测方法
-        self._analyze_lhc_tail_plays(df_target, results)
+        self._analyze_lhc_tail_plays(df_target, results, period_amount_dict)
         
         # 其他检测方法
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
+            # 获取该期投注金额
+            period_key = f"{account}_{lottery}_{period}"
+            period_amount = period_amount_dict.get(period_key, 0.0)
+            
             # 先调用其他检测方法
-            self._analyze_lhc_tema(account, lottery, period, group, results)  # 特码多码检测
-            self._analyze_lhc_two_sides(account, lottery, period, group, results)  # 两面玩法矛盾、区间多组等
+            self._analyze_lhc_tema(account, lottery, period, group, results, period_amount)  # 特码多码检测
+            self._analyze_lhc_two_sides(account, lottery, period, group, results, period_amount)  # 两面玩法矛盾、区间多组等
             
             # 然后再调用变相超码检测（它需要知道其他检测的结果）
-            self._analyze_lhc_tema_contradiction(account, lottery, period, group, results)
+            self._analyze_lhc_tema_contradiction(account, lottery, period, group, results, period_amount)
             
             # 其他检测方法
-            self._analyze_lhc_lianxiao(account, lottery, period, group, results)
-            self._analyze_lhc_lianwei(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma(account, lottery, period, group, results)
-            self._analyze_lhc_zhengma_1_6(account, lottery, period, group, results)
-            self._analyze_lhc_zhengte(account, lottery, period, group, results)
-            self._analyze_lhc_pingte(account, lottery, period, group, results)
-            self._analyze_lhc_texiao(account, lottery, period, group, results)
-            self._analyze_lhc_yixiao(account, lottery, period, group, results)
-            self._analyze_lhc_wave(account, lottery, period, group, results)
-            self._analyze_lhc_five_elements(account, lottery, period, group, results)
-            self._analyze_lhc_banbo(account, lottery, period, group, results)
+            self._analyze_lhc_lianxiao(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_lianwei(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_zhengma_wave_detailed(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_zhengma(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_zhengma_1_6(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_zhengte(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_pingte(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_texiao(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_yixiao(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_wave(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_five_elements(account, lottery, period, group, results, period_amount)
+            self._analyze_lhc_banbo(account, lottery, period, group, results, period_amount)
         
         return results
     
-    def _analyze_lhc_tail_plays(self, df_target, results):
+    def _analyze_lhc_tail_plays(self, df_target, results, period_amount_dict):
         """分析六合彩尾数玩法的完整逻辑 - 从Colab版本移植"""
         tail_categories = ['尾数', '尾数_头尾数', '特尾', '全尾']
         
@@ -3819,11 +3845,13 @@ class AnalysisEngine:
                             '尾数数量': len(tails_set),
                             '号码数量': len(tails_set),  # 兼容字段
                             '投注内容': bet_content,
+                            '当期投注金额': period_amount,  # 添加金额信息
                             '排序权重': self._calculate_sort_weight({'尾数数量': len(tails_set)}, result_key)
                         }
                         self._add_unique_result(results, result_key, record)
     
-    def _analyze_lhc_tema(self, account, lottery, period, group, results):
+    def _analyze_lhc_tema(self, account, lottery, period, group, results, period_amount):
+        """分析六合彩特码玩法 - 添加金额参数"""
         tema_group = group[group['玩法分类'] == '特码']
         
         all_numbers = set()
@@ -3844,12 +3872,13 @@ class AnalysisEngine:
                 '玩法分类': '特码',
                 '号码数量': len(all_numbers),
                 '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '特码多码')
             }
             self._add_unique_result(results, '特码多码', record)
 
-    def _analyze_lhc_tema_contradiction(self, account, lottery, period, group, results):
-        """分析六合彩特码变相超码 - 修复版本"""
+    def _analyze_lhc_tema_contradiction(self, account, lottery, period, group, results, period_amount):
+        """分析六合彩特码变相超码 - 添加金额参数"""
         
         # ==================== 首先检查是否已经触发了其他违规检测 ====================
         
@@ -4004,6 +4033,7 @@ class AnalysisEngine:
                                 '大号码数量': len(big_values),
                                 '单号码数量': len(single_values),
                                 '双号码数量': len(double_values),
+                                '当期投注金额': period_amount,  # 添加金额信息
                                 '排序权重': self._calculate_sort_weight(
                                     {'矛盾值': contradiction_value, '号码数量': len(all_numbers)}, 
                                     '特码变相超码'
@@ -4160,6 +4190,7 @@ class AnalysisEngine:
                         '大号码数量': len(interval_big),
                         '单号码数量': len(interval_single),
                         '双号码数量': len(interval_double),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight(
                             {'矛盾值': contradiction_value, '号码数量': total_interval_numbers}, 
                             '特码区间变相超码'
@@ -4167,7 +4198,7 @@ class AnalysisEngine:
                     }
                     self._add_unique_result(results, '特码区间变相超码', record)
     
-    def _analyze_lhc_two_sides(self, account, lottery, period, group, results):
+    def _analyze_lhc_two_sides(self, account, lottery, period, group, results):def _analyze_lhc_two_sides(self, account, lottery, period, group, results, period_amount):
         two_sides_group = group[group['玩法分类'] == '两面']
         
         all_bets = {
@@ -4204,6 +4235,7 @@ class AnalysisEngine:
                 '投注区间数': len(all_bets['range_bet']),
                 '投注区间': sorted_ranges,
                 '投注内容': bet_content,  # 添加投注内容字段
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注区间数': len(all_bets['range_bet'])}, '区间多组')
             }
             self._add_unique_result(results, '区间多组', record)
@@ -4232,6 +4264,7 @@ class AnalysisEngine:
                 '期号': period,
                 '玩法分类': '两面',
                 '矛盾类型': '、'.join(conflict_types),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面玩法矛盾')
             }
             self._add_unique_result(results, '两面玩法矛盾', record)
@@ -4245,11 +4278,12 @@ class AnalysisEngine:
                 '玩法分类': '两面',
                 '投注波色数': len(wave_set),
                 '投注波色': sorted(list(wave_set)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(wave_set)}, '波色三组')
             }
             self._add_unique_result(results, '波色三组', record)
     
-    def _analyze_lhc_zhengma(self, account, lottery, period, group, results):
+    def _analyze_lhc_zhengma(self, account, lottery, period, group, results, period_amount):
         zhengma_group = group[group['玩法分类'] == '正码']
         
         all_numbers = set()
@@ -4270,11 +4304,12 @@ class AnalysisEngine:
                 '玩法分类': '正码',
                 '号码数量': len(all_numbers),
                 '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正码多码')
             }
             self._add_unique_result(results, '正码多码', record)
     
-    def _analyze_lhc_zhengma_1_6(self, account, lottery, period, group, results):
+    def _analyze_lhc_zhengma_1_6(self, account, lottery, period, group, results, period_amount):
         """六合彩正码1-6检测 - 增强位置判断"""
         zhengma_1_6_group = group[group['玩法分类'] == '正码1-6']
         
@@ -4318,6 +4353,7 @@ class AnalysisEngine:
                         '位置': position,
                         '矛盾类型': '、'.join(conflicts),
                         '投注内容': f"{position}-{','.join(sorted(sum_parity_bets))}",
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正码1-6矛盾')
                     }
                     self._add_unique_result(results, '正码1-6矛盾', record)
@@ -4406,7 +4442,7 @@ class AnalysisEngine:
         # 默认返回分类名称
         return category_str
     
-    def _analyze_lhc_zhengte(self, account, lottery, period, group, results):
+    def _analyze_lhc_zhengte(self, account, lottery, period, group, results, period_amount):
         """分析六合彩正特玩法 - 改进版，精确识别具体位置"""
         zhengte_categories = ['正特', '正1特', '正2特', '正3特', '正4特', '正5特', '正6特']
         
@@ -4447,6 +4483,7 @@ class AnalysisEngine:
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}: {', '.join([f'{num:02d}' for num in sorted(numbers)])}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, f'{position}多码')
                 }
                 self._add_unique_result(results, f'{position}多码', record)
@@ -4472,11 +4509,12 @@ class AnalysisEngine:
                     '玩法分类': position,
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, f'{position}矛盾')
                 }
                 self._add_unique_result(results, f'{position}矛盾', record)
     
-    def _analyze_lhc_pingte(self, account, lottery, period, group, results):
+    def _analyze_lhc_pingte(self, account, lottery, period, group, results, period_amount):
         pingte_group = group[group['玩法分类'] == '平特']
         
         all_zodiacs = set()
@@ -4495,11 +4533,12 @@ class AnalysisEngine:
                 '玩法分类': '平特',
                 '生肖数量': len(all_zodiacs),
                 '投注内容': ', '.join(sorted(all_zodiacs)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, '平特多肖')
             }
             self._add_unique_result(results, '平特多肖', record)
     
-    def _analyze_lhc_texiao(self, account, lottery, period, group, results):
+    def _analyze_lhc_texiao(self, account, lottery, period, group, results, period_amount):
         texiao_group = group[group['玩法分类'] == '特肖']
         
         all_zodiacs = set()
@@ -4518,11 +4557,12 @@ class AnalysisEngine:
                 '玩法分类': '特肖',
                 '生肖数量': len(all_zodiacs),
                 '投注内容': ', '.join(sorted(all_zodiacs)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, '特肖多肖')
             }
             self._add_unique_result(results, '特肖多肖', record)
     
-    def _analyze_lhc_yixiao(self, account, lottery, period, group, results):
+    def _analyze_lhc_yixiao(self, account, lottery, period, group, results, period_amount):
         yixiao_group = group[group['玩法分类'] == '一肖']
         
         all_zodiacs = set()
@@ -4541,11 +4581,12 @@ class AnalysisEngine:
                 '玩法分类': '一肖',
                 '生肖数量': len(all_zodiacs),
                 '投注内容': ', '.join(sorted(all_zodiacs)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'生肖数量': len(all_zodiacs)}, '一肖多肖')
             }
             self._add_unique_result(results, '一肖多肖', record)
     
-    def _analyze_lhc_wave(self, account, lottery, period, group, results):
+    def _analyze_lhc_wave(self, account, lottery, period, group, results, period_amount):
         """六合彩色波检测 - 包含半波内容检测，七色波就是色波"""
         wave_group = group[group['玩法分类'] == '色波']
         
@@ -4588,6 +4629,7 @@ class AnalysisEngine:
                 '投注波色数': len(traditional_waves),
                 '投注波色': sorted(list(traditional_waves)),
                 '投注内容': f"色波全包: {', '.join(sorted(traditional_waves))}",
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(traditional_waves)}, '色波全包')
             }
             self._add_unique_result(results, '色波全包', record)
@@ -4605,6 +4647,7 @@ class AnalysisEngine:
                 '投注半波数': len(size_full_set),
                 '投注半波': sorted(list(size_full_set)),
                 '投注内容': ', '.join(sorted(size_full_set)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '色波中半波大小全包')
             }
             self._add_unique_result(results, '色波中半波全包', record)
@@ -4621,11 +4664,12 @@ class AnalysisEngine:
                 '投注半波数': len(parity_full_set),
                 '投注半波': sorted(list(parity_full_set)),
                 '投注内容': ', '.join(sorted(parity_full_set)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '色波中半波单双全包')
             }
             self._add_unique_result(results, '色波中半波全包', record)
     
-    def _analyze_lhc_five_elements(self, account, lottery, period, group, results):
+    def _analyze_lhc_five_elements(self, account, lottery, period, group, results, period_amount):
         five_elements_group = group[group['玩法分类'] == '五行']
         
         all_elements = set()
@@ -4644,11 +4688,12 @@ class AnalysisEngine:
                 '玩法分类': '五行',
                 '投注五行数': len(all_elements),
                 '投注五行': sorted(list(all_elements)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注五行数': len(all_elements)}, '五行多组')
             }
             self._add_unique_result(results, '五行多组', record)
     
-    def _analyze_lhc_lianxiao(self, account, lottery, period, group, results):
+    def _analyze_lhc_lianxiao(self, account, lottery, period, group, results, period_amount):
         """分析六合彩连肖玩法 - 修复版本，确保区分具体类型"""
         # 定义连肖类型及其对应的阈值
         lianxiao_config = {
@@ -4685,6 +4730,7 @@ class AnalysisEngine:
                         '违规类型': f'{lianxiao_type}多肖',
                         '生肖数量': len(zodiacs),
                         '投注内容': ', '.join(sorted(zodiacs)),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{lianxiao_type}多肖')
                     }
                     self._add_unique_result(results, f'{lianxiao_type}多肖', record)
@@ -4725,6 +4771,7 @@ class AnalysisEngine:
                         '违规类型': f'{display_type}多肖',
                         '生肖数量': len(zodiacs),
                         '投注内容': ', '.join(sorted(zodiacs)),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, f'{display_type}多肖')
                     }
                     self._add_unique_result(results, f'{display_type}多肖', record)
@@ -4745,7 +4792,7 @@ class AnalysisEngine:
         
         return None
     
-    def _analyze_lhc_lianwei(self, account, lottery, period, group, results):
+    def _analyze_lhc_lianwei(self, account, lottery, period, group, results, period_amount):
         """分析六合彩连尾玩法 - 修复版本，确保区分具体类型"""
         # 定义连尾类型及其对应的阈值
         lianwei_config = {
@@ -4773,6 +4820,7 @@ class AnalysisEngine:
                         '违规类型': f'{lianwei_type}多尾',
                         '尾数数量': len(tails),
                         '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{lianwei_type}多尾')
                     }
                     self._add_unique_result(results, f'{lianwei_type}多尾', record)
@@ -4806,6 +4854,7 @@ class AnalysisEngine:
                         '违规类型': f'{display_type}多尾',
                         '尾数数量': len(tails),
                         '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, f'{display_type}多尾')
                     }
                     self._add_unique_result(results, f'{display_type}多尾', record)
@@ -4863,6 +4912,7 @@ class AnalysisEngine:
                     '玩法分类': category,
                     '号码数量': len(all_numbers),
                     '投注内容': ', '.join([f"{num:02d}" for num in sorted(all_numbers)]),
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正特多码')
                 }
                 self._add_unique_result(results, '正特多码', record)
@@ -4884,7 +4934,8 @@ class AnalysisEngine:
                     '彩种': lottery,
                     '期号': period,
                     '玩法分类': category,
-                    '矛盾类型': '、'.join(conflicts),
+                    '矛盾类型': '、'.join
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '正特矛盾')
                 }
                 self._add_unique_result(results, '正特矛盾', record)
@@ -4920,6 +4971,7 @@ class AnalysisEngine:
                         '玩法分类': category,
                         '生肖数量': len(zodiacs),
                         '投注内容': ', '.join(sorted(zodiacs)),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'生肖数量': len(zodiacs)}, '连肖多肖')
                     }
                     self._add_unique_result(results, '连肖多肖', record)
@@ -4947,11 +4999,12 @@ class AnalysisEngine:
                         '玩法分类': category,
                         '尾数数量': len(tails),
                         '投注内容': ', '.join([f"{tail}尾" for tail in sorted(tails)]),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'尾数数量': len(tails)}, '连尾多尾')
                     }
                     self._add_unique_result(results, '连尾多尾', record)
     
-    def _analyze_lhc_banbo(self, account, lottery, period, group, results):
+    def _analyze_lhc_banbo(self, account, lottery, period, group, results, period_amount):
         """六合彩半波检测 - 检测大小全包和单双全包，包括蓝波、绿波、红波玩法"""
         # 扩展半波相关的玩法分类
         banbo_categories = ['半波', '蓝波', '绿波', '红波']
@@ -4992,6 +5045,7 @@ class AnalysisEngine:
                 '投注半波数': len(size_full_set),
                 '投注半波': sorted(list(size_full_set)),
                 '投注内容': ', '.join(sorted(size_full_set)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(size_full_set)}, '半波大小全包')
             }
             self._add_unique_result(results, '半波大小全包', record)
@@ -5006,11 +5060,12 @@ class AnalysisEngine:
                 '投注半波数': len(parity_full_set),
                 '投注半波': sorted(list(parity_full_set)),
                 '投注内容': ', '.join(sorted(parity_full_set)),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注半波数': len(parity_full_set)}, '半波单双全包')
             }
             self._add_unique_result(results, '半波单双全包', record)
 
-    def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results):
+    def _analyze_lhc_zhengma_wave_detailed(self, account, lottery, period, group, results, period_amount):
         """分析六合彩正码中的波色投注 - 修复版本"""
         zhengma_categories = ['正码', '正码1-6', '正码一', '正码二', '正码三', '正码四', '正码五', '正码六']
         
@@ -5086,8 +5141,8 @@ class AnalysisEngine:
         return waves
 
     # =============== 3D系列分析方法 ===============
-    def analyze_3d_patterns(self, df):
-        """分析3D系列投注模式"""
+    def analyze_3d_patterns(self, df, period_amount_dict):
+        """分析3D系列投注模式 - 添加金额参数"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == '3D']
@@ -5098,12 +5153,16 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            self._analyze_3d_two_sides(account, lottery, period, group, results)
-            self._analyze_3d_dingwei(account, lottery, period, group, results)
+            # 获取该期投注金额
+            period_key = f"{account}_{lottery}_{period}"
+            period_amount = period_amount_dict.get(period_key, 0.0)
+            
+            self._analyze_3d_two_sides(account, lottery, period, group, results, period_amount)
+            self._analyze_3d_dingwei(account, lottery, period, group, results, period_amount)
         
         return results
     
-    def _analyze_3d_two_sides(self, account, lottery, period, group, results):
+    def _analyze_3d_two_sides(self, account, lottery, period, group, results, period_amount):
         """分析3D两面玩法矛盾 - 增强竖线格式支持"""
         two_sides_group = group[group['玩法分类'] == '两面']
         
@@ -5194,11 +5253,12 @@ class AnalysisEngine:
                     '位置': position,
                     '矛盾类型': '、'.join(conflicts),
                     '投注内容': f"{position}:{','.join(sorted(bet_options))}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflicts)}, '两面矛盾')
                 }
                 self._add_unique_result(results, '两面矛盾', record)
     
-    def _analyze_3d_dingwei(self, account, lottery, period, group, results):
+    def _analyze_3d_dingwei(self, account, lottery, period, group, results, period_amount):
         """分析3D定位胆多码 - 增强竖线格式支持"""
         dingwei_categories = ['定位胆', '定位胆_百位', '定位胆_十位', '定位胆_个位']
         
@@ -5256,13 +5316,14 @@ class AnalysisEngine:
                     '位置': position,
                     '号码数量': len(numbers),
                     '投注内容': f"{position}-{','.join([str(num) for num in sorted(numbers)])}",
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '定位胆多码')
                 }
                 self._add_unique_result(results, '定位胆多码', record)
 
     # =============== 快三分析方法 ===============
-    def analyze_k3_patterns(self, df):
-        """分析快三投注模式"""
+    def analyze_k3_patterns(self, df, period_amount_dict):
+        """分析快三投注模式 - 添加金额参数"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'K3']
@@ -5273,18 +5334,22 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            self._analyze_k3_hezhi_enhanced(account, lottery, period, group, results)
+            # 获取该期投注金额
+            period_key = f"{account}_{lottery}_{period}"
+            period_amount = period_amount_dict.get(period_key, 0.0)
+            
+            self._analyze_k3_hezhi_enhanced(account, lottery, period, group, results, period_amount)
             # 先进行聚合检测（更严格的检测）
-            self._analyze_k3_dudan_aggregated(account, lottery, period, group, results)
+            self._analyze_k3_dudan_aggregated(account, lottery, period, group, results, period_amount)
             # 如果聚合检测没有发现问题，再进行单个记录检测
             if not any('独胆多码' in key for key in results.keys()):
-                self._analyze_k3_dudan(account, lottery, period, group, results)
-            self._analyze_k3_different(account, lottery, period, group, results)
-            self._analyze_k3_two_sides_plays(account, lottery, period, group, results)
+                self._analyze_k3_dudan(account, lottery, period, group, results, period_amount)
+            self._analyze_k3_different(account, lottery, period, group, results, period_amount)
+            self._analyze_k3_two_sides_plays(account, lottery, period, group, results, period_amount)
         
         return results
     
-    def _analyze_k3_hezhi_enhanced(self, account, lottery, period, group, results):
+    def _analyze_k3_hezhi_enhanced(self, account, lottery, period, group, results, period_amount):
         """分析快三和值玩法 - 优化版，避免重复检测"""
         hezhi_categories = ['和值', '和值_大小单双']
         
@@ -5335,6 +5400,7 @@ class AnalysisEngine:
                 '玩法分类': '和值',
                 '号码数量': len(all_numbers),
                 '投注内容': bet_content,
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '和值多码')
             }
             self._add_unique_result(results, '和值多码', record)
@@ -5366,6 +5432,7 @@ class AnalysisEngine:
                 '玩法分类': '和值',
                 '矛盾类型': '、'.join(conflict_types),
                 '投注内容': bet_content,
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '和值矛盾')
             }
             self._add_unique_result(results, '和值矛盾', record)
@@ -5425,11 +5492,12 @@ class AnalysisEngine:
                     '小号码数量': len(small_values),
                     '单号码数量': len(single_values),
                     '双号码数量': len(double_values),
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'矛盾值': contradiction_value}, '和值变相超码')
                 }
                 self._add_unique_result(results, '和值变相超码', record)
 
-    def _analyze_k3_dudan(self, account, lottery, period, group, results):
+    def _analyze_k3_dudan(self, account, lottery, period, group, results, period_amount):
         """分析快三独胆玩法 - 单个记录检测"""
         dudan_group = group[group['玩法分类'] == '独胆']
         
@@ -5448,11 +5516,12 @@ class AnalysisEngine:
                     '玩法分类': '独胆',
                     '号码数量': len(numbers),
                     '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
+                    '当期投注金额': period_amount,  # 添加金额信息
                     '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '独胆多码')
                 }
                 self._add_unique_result(results, '独胆多码', record)
     
-    def _analyze_k3_dudan_aggregated(self, account, lottery, period, group, results):
+    def _analyze_k3_dudan_aggregated(self, account, lottery, period, group, results, period_amount):
         """分析快三独胆玩法 - 按账户期号聚合检测"""
         dudan_group = group[group['玩法分类'] == '独胆']
         
@@ -5477,11 +5546,12 @@ class AnalysisEngine:
                 '玩法分类': '独胆',
                 '号码数量': len(all_numbers),
                 '投注内容': f"聚合投注: {', '.join([str(num) for num in sorted(all_numbers)])}",
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '独胆多码')
             }
             self._add_unique_result(results, '独胆多码', record)
     
-    def _analyze_k3_different(self, account, lottery, period, group, results):
+    def _analyze_k3_different(self, account, lottery, period, group, results, period_amount):
         different_categories = ['二不同号', '三不同号']
         
         for category in different_categories:
@@ -5499,11 +5569,12 @@ class AnalysisEngine:
                         '玩法分类': category,
                         '号码数量': len(numbers),
                         '投注内容': ', '.join([str(num) for num in sorted(numbers)]),
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({'号码数量': len(numbers)}, '不同号全包')
                     }
                     self._add_unique_result(results, '不同号全包', record)
     
-    def _analyze_k3_two_sides_plays(self, account, lottery, period, group, results):
+    def _analyze_k3_two_sides_plays(self, account, lottery, period, group, results, period_amount):
         """快三两面玩法分析"""
         two_sides_categories = ['两面']
         
@@ -5552,13 +5623,14 @@ class AnalysisEngine:
                 '玩法分类': '两面',
                 '矛盾类型': '、'.join(conflict_types),
                 '投注内容': bet_content,
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面矛盾')
             }
             self._add_unique_result(results, '两面矛盾', record)
 
     # =============== 三色彩分析方法 ===============
-    def analyze_three_color_patterns(self, df):
-        """分析三色彩投注模式"""
+    def analyze_three_color_patterns(self, df, period_amount_dict):
+        """分析三色彩投注模式 - 添加金额参数"""
         results = defaultdict(list)
         
         df_target = df[df['彩种'].apply(self.identify_lottery_type) == 'THREE_COLOR']
@@ -5569,13 +5641,17 @@ class AnalysisEngine:
         grouped = df_target.groupby(['会员账号', '彩种', '期号'])
         
         for (account, lottery, period), group in grouped:
-            self._analyze_three_color_zhengma(account, lottery, period, group, results)
-            self._analyze_three_color_two_sides(account, lottery, period, group, results)
-            self._analyze_three_color_wave(account, lottery, period, group, results)
+            # 获取该期投注金额
+            period_key = f"{account}_{lottery}_{period}"
+            period_amount = period_amount_dict.get(period_key, 0.0)
+            
+            self._analyze_three_color_zhengma(account, lottery, period, group, results, period_amount)
+            self._analyze_three_color_two_sides(account, lottery, period, group, results, period_amount)
+            self._analyze_three_color_wave(account, lottery, period, group, results, period_amount)
         
         return results
     
-    def _analyze_three_color_zhengma(self, account, lottery, period, group, results):
+    def _analyze_three_color_zhengma(self, account, lottery, period, group, results, period_amount):
         zhengma_group = group[group['玩法分类'] == '正码']
         
         all_numbers = set()
@@ -5593,11 +5669,12 @@ class AnalysisEngine:
                 '玩法分类': '正码',
                 '号码数量': len(all_numbers),
                 '投注内容': ', '.join([str(num) for num in sorted(all_numbers)]),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'号码数量': len(all_numbers)}, '正码多码')
             }
             self._add_unique_result(results, '正码多码', record)
     
-    def _analyze_three_color_two_sides(self, account, lottery, period, group, results):
+    def _analyze_three_color_two_sides(self, account, lottery, period, group, results, period_amount):
         two_sides_group = group[group['玩法分类'] == '两面']
         
         has_big = False
@@ -5631,11 +5708,12 @@ class AnalysisEngine:
                 '期号': period,
                 '玩法分类': '两面',
                 '矛盾类型': '、'.join(conflict_types),
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'矛盾类型': '、'.join(conflict_types)}, '两面矛盾')
             }
             self._add_unique_result(results, '两面矛盾', record)
     
-    def _analyze_three_color_wave(self, account, lottery, period, group, results):
+    def _analyze_three_color_wave(self, account, lottery, period, group, results, period_amount):
         """三色彩色波检测 - 记录同一期号内同时投注红波和绿波"""
         wave_group = group[group['玩法分类'] == '色波']
         
@@ -5658,6 +5736,7 @@ class AnalysisEngine:
                 '投注波色数': len(all_waves),
                 '投注波色': sorted(list(all_waves)),
                 '投注内容': f"同一期号内投注: {', '.join(sorted(all_waves))}",
+                '当期投注金额': period_amount,  # 添加金额信息
                 '排序权重': self._calculate_sort_weight({'投注波色数': len(all_waves)}, '色波红绿投注')
             }
             self._add_unique_result(results, '色波红绿投注', record)
@@ -5879,6 +5958,7 @@ class AnalysisEngine:
                         '违规类型': f'{category_name}{result_suffix}',
                         count_field: len(items),
                         '投注内容': display_content,
+                        '当期投注金额': period_amount,  # 添加金额信息
                         '排序权重': self._calculate_sort_weight({count_field: len(items)}, f'{category_name}{result_suffix}')
                     }
                     self._add_unique_result(results, f'{category_name}{result_suffix}', record)
@@ -6059,7 +6139,7 @@ class ResultProcessor:
         self.displayed_records_cache = set()  # 缓存已显示的记录
     
     def organize_results_by_account(self, all_results):
-        """组织结果按账户分类"""
+        """组织结果按账户分类 - 添加金额信息"""
         account_results = defaultdict(lambda: {
             'violations': [],
             'periods': set(),
@@ -6067,7 +6147,9 @@ class ResultProcessor:
             'violation_count': 0,
             'lottery_types': set(),
             'violations_by_type': defaultdict(list),
-            'violations_by_lottery': defaultdict(lambda: defaultdict(list))
+            'violations_by_lottery': defaultdict(lambda: defaultdict(list)),
+            'total_bet_amount': 0.0,  # 添加总投注金额
+            'period_amounts': defaultdict(float)  # 添加每期金额
         })
         
         for lottery_type, results in all_results.items():
@@ -6076,6 +6158,7 @@ class ResultProcessor:
                     account = record['会员账号']
                     period = record['期号']
                     lottery = record['彩种']
+                    amount = record.get('当期投注金额', 0.0)
                     
                     violation_record = {
                         '彩种': lottery,
@@ -6087,6 +6170,7 @@ class ResultProcessor:
                         '号码数量': record.get('号码数量', 0),
                         '矛盾类型': record.get('矛盾类型', ''),
                         '位置': record.get('位置', ''),
+                        '当期投注金额': amount,  # 添加金额信息
                         '排序权重': record.get('排序权重', 0)
                     }
                     
@@ -6097,6 +6181,8 @@ class ResultProcessor:
                     account_results[account]['violation_types'].add(result_type)
                     account_results[account]['violation_count'] += 1
                     account_results[account]['lottery_types'].add(lottery)
+                    account_results[account]['total_bet_amount'] += amount
+                    account_results[account]['period_amounts'][period] = amount
         
         return account_results
     
@@ -6366,7 +6452,7 @@ class ResultProcessor:
                 st.dataframe(display_df, hide_index=True, use_container_width=True)
     
     def display_account_results(self, account_results):
-        """显示账户结果"""
+        """显示账户结果 - 添加金额显示"""
         if not account_results:
             st.info("🎉 未发现可疑投注行为")
             return
@@ -6374,7 +6460,7 @@ class ResultProcessor:
         st.subheader("🔍 违规账户详情")
         
         sorted_accounts = sorted(account_results.items(), 
-                               key=lambda x: x[1]['violation_count'], 
+                               key=lambda x: x[1]['total_bet_amount'],  # 按总投注金额排序
                                reverse=True)
         
         for account_index, (account, data) in enumerate(sorted_accounts, 1):
@@ -6382,7 +6468,7 @@ class ResultProcessor:
             account_display = account.replace('_', '\\_')
             
             with st.container():
-                col1, col2, col3 = st.columns([3, 2, 1])
+                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])  # 增加一列显示金额
                 
                 with col1:
                     st.subheader(f"{account_index}. {account_display}")  # 使用转义后的账号
@@ -6403,6 +6489,10 @@ class ResultProcessor:
                     st.write(f"**违规期数:** {len(data['periods'])}")
                     st.write(f"**违规次数:** {data['violation_count']}")
                 
+                with col4:
+                    # 显示总投注金额
+                    st.write(f"**总投注金额:** {data['total_bet_amount']:,.2f}")
+                
                 # 按彩种和违规类型分组显示，避免重复
                 displayed_violations = set()
                 
@@ -6421,7 +6511,7 @@ class ResultProcessor:
                             if representative_records:
                                 st.write(f"**{violation_type}** ({len(type_violations)}次)")
                                 
-                                # 准备显示数据
+                                # 准备显示数据 - 添加金额列
                                 display_data = []
                                 for record in representative_records:
                                     display_record = {
@@ -6429,7 +6519,8 @@ class ResultProcessor:
                                         '玩法分类': record['玩法分类'],
                                         '违规类型': violation_type,
                                         '详细信息': record.get('详细信息', ''),
-                                        '投注内容': record.get('投注内容', '')
+                                        '投注内容': record.get('投注内容', ''),
+                                        '投注金额': f"{record.get('当期投注金额', 0):,.2f}"  # 添加金额列
                                     }
                                     # 添加位置信息（如果有）
                                     if record.get('位置'):
@@ -6456,7 +6547,7 @@ class Exporter:
     """结果导出器"""
     
     def prepare_export_data(self, account_summary):
-        """准备导出数据 - 增强版本，包含所有字段"""
+        """准备导出数据 - 增强版本，包含所有字段和金额"""
         export_data = []
         
         for account, summary in account_summary.items():
@@ -6475,6 +6566,7 @@ class Exporter:
                             '投注类型': record.get('投注类型', ''),  # 添加投注类型
                             '位置数量': record.get('位置数量', 0),   # 添加位置数量
                             '出现位置': record.get('出现位置', ''),  # 添加出现位置
+                            '当期投注金额': record.get('当期投注金额', 0.0),  # 添加金额
                             '详细信息': record.get('详细信息', '无详情')  # 添加详细信息
                         }
                         
