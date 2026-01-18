@@ -6941,6 +6941,19 @@ def main():
                     # 统一玩法分类
                     df_normalized = analyzer.normalize_play_categories(df_clean)
                     
+                    # 创建期号金额字典
+                    period_amount_dict = {}
+                    if '金额' in df_normalized.columns:
+                        # 确保金额列是数值类型
+                        if df_normalized['金额'].dtype != 'float64':
+                            df_normalized['金额'] = pd.to_numeric(df_normalized['金额'], errors='coerce')
+                        
+                        # 按会员账号、彩种、期号分组，计算每期总金额
+                        for (account, lottery, period), group in df_normalized.groupby(['会员账号', '彩种', '期号']):
+                            period_key = f"{account}_{lottery}_{period}"
+                            total_amount = group['金额'].sum()
+                            period_amount_dict[period_key] = total_amount
+                    
                     # 分析投注模式
                     # 使用进度条
                     progress_bar = st.progress(0)
@@ -6954,18 +6967,18 @@ def main():
                         status_text.text(f"正在分析 {lottery_type}...")
                         
                         if lottery_type == 'PK拾赛车':
-                            all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized)
+                            all_results[lottery_type] = analyzer.analyze_pk10_patterns(df_normalized, period_amount_dict)
                         elif lottery_type == '时时彩':
-                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized)
+                            all_results[lottery_type] = analyzer.analyze_ssc_patterns(df_normalized, period_amount_dict)
                         elif lottery_type == '六合彩':
-                            all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized)
+                            all_results[lottery_type] = analyzer.analyze_lhc_patterns(df_normalized, period_amount_dict)
                         elif lottery_type == '快三':
-                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized)
+                            all_results[lottery_type] = analyzer.analyze_k3_patterns(df_normalized, period_amount_dict)
                         elif lottery_type == '三色彩':
-                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized)
+                            all_results[lottery_type] = analyzer.analyze_three_color_patterns(df_normalized, period_amount_dict)
                         # 添加3D系列分析调用
                         elif lottery_type == '3D系列':
-                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized)
+                            all_results[lottery_type] = analyzer.analyze_3d_patterns(df_normalized, period_amount_dict)
                         
                         progress_bar.progress((i + 1) / len(lottery_types))
                     
@@ -7000,7 +7013,10 @@ def main():
         
         except Exception as e:
             st.error(f"❌ 处理过程中出现错误: {str(e)}")
+            import traceback
+            st.error(f"详细错误信息: {traceback.format_exc()}")
             logger.error(f"处理过程中出现错误: {str(e)}")
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
     
     else:
         st.markdown("""
@@ -7019,6 +7035,7 @@ def main():
         - ✅ 六合彩系列：特码/正码多码、生肖多号码、尾数多码、波色五行矛盾
         - ✅ 快三系列：和值多码、和值矛盾、和值变相超码、独胆多码、不同号全包、两面矛盾
         - ✅ 三色彩系列：正码多码、两面矛盾、色波矛盾
+        - ✅ 3D系列：定位胆多码、两面矛盾
         
         **🚀 技术优势**
         - 📊 完整的尾数检测
