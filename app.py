@@ -3803,6 +3803,10 @@ class AnalysisEngine:
             )
             
             for (account, lottery, period), group in grouped:
+                # 获取该期投注金额
+                period_key = f"{account}_{lottery}_{period}"
+                period_amount = period_amount_dict.get(period_key, 0.0)  # 从字典获取金额
+                
                 # 使用字典按调整后的分类聚合尾数
                 category_tails = defaultdict(set)
                 category_contents = defaultdict(list)
@@ -3845,7 +3849,7 @@ class AnalysisEngine:
                             '尾数数量': len(tails_set),
                             '号码数量': len(tails_set),  # 兼容字段
                             '投注内容': bet_content,
-                            '当期投注金额': period_amount,  # 添加金额信息
+                            '当期投注金额': period_amount,  # 使用从字典获取的金额
                             '排序权重': self._calculate_sort_weight({'尾数数量': len(tails_set)}, result_key)
                         }
                         self._add_unique_result(results, result_key, record)
