@@ -3882,7 +3882,7 @@ class AnalysisEngine:
             self._add_unique_result(results, '特码多码', record)
 
     def _analyze_lhc_tema_contradiction(self, account, lottery, period, group, results, period_amount):
-        """分析六合彩特码变相超码 - 添加金额参数"""
+        """分析六合彩特码变相超码 - 增强版：添加色波和半波检测"""
         
         # ==================== 首先检查是否已经触发了其他违规检测 ====================
         
@@ -3911,7 +3911,7 @@ class AnalysisEngine:
         ):
             skip_interval_contradiction = True
         
-        # ==================== 情况1：检测特码玩法（号码）+ 两面玩法（大小单双） ====================
+        # ==================== 情况1：检测特码玩法（号码）+ 两面玩法（大小单双）+ 波色/半波 ====================
         
         # 如果已经触发特码多码或两面玩法矛盾，则跳过第一种情况的检测
         if not skip_contradiction:
@@ -3935,14 +3935,38 @@ class AnalysisEngine:
                     # 已经达到特码多码阈值，由 _analyze_lhc_tema 方法处理，这里跳过
                     pass
                 else:
-                    # 从两面玩法中提取特码相关的大小单双投注
+                    # 从两面玩法中提取特码相关的大小单双和波色投注
                     two_sides_group = group[group['玩法分类'] == '两面']
                     
+                    # 从色波/半波玩法中提取波色投注
+                    wave_play_group = group[group['玩法分类'].isin(['色波', '半波', '红波', '蓝波', '绿波'])]
+                    
+                    # 初始化检测标志
                     has_big = False
                     has_small = False
                     has_single = False
                     has_double = False
                     
+                    # 波色检测标志
+                    has_red_wave = False
+                    has_blue_wave = False
+                    has_green_wave = False
+                    
+                    # 半波检测标志
+                    has_red_big = False
+                    has_red_small = False
+                    has_red_single = False
+                    has_red_double = False
+                    has_blue_big = False
+                    has_blue_small = False
+                    has_blue_single = False
+                    has_blue_double = False
+                    has_green_big = False
+                    has_green_small = False
+                    has_green_single = False
+                    has_green_double = False
+                    
+                    # 检查两面玩法中的投注
                     for _, row in two_sides_group.iterrows():
                         content = str(row['内容'])
                         
@@ -3962,13 +3986,95 @@ class AnalysisEngine:
                         if '双' in parity:
                             has_double = True
                     
-                    # 检测第一种情况：有号码投注且有两面投注
-                    if all_numbers and (has_big or has_small or has_single or has_double):
+                    # 检查波色和半波玩法中的投注
+                    for _, row in wave_play_group.iterrows():
+                        content = str(row['内容'])
+                        content_lower = content.lower()
+                        
+                        # 解析玩法-投注内容格式
+                        if '-' in content:
+                            parts = content.split('-', 1)
+                            bet_content = parts[1].strip()
+                        else:
+                            bet_content = content
+                        
+                        bet_content_lower = bet_content.lower()
+                        
+                        # 检测波色
+                        if '红波' in bet_content_lower or '红' == bet_content_lower or '红色' in bet_content_lower:
+                            has_red_wave = True
+                        if '蓝波' in bet_content_lower or '蓝' == bet_content_lower or '蓝色' in bet_content_lower:
+                            has_blue_wave = True
+                        if '绿波' in bet_content_lower or '绿' == bet_content_lower or '绿色' in bet_content_lower:
+                            has_green_wave = True
+                        
+                        # 检测半波
+                        if '红大' in bet_content_lower:
+                            has_red_big = True
+                        if '红小' in bet_content_lower:
+                            has_red_small = True
+                        if '红单' in bet_content_lower:
+                            has_red_single = True
+                        if '红双' in bet_content_lower:
+                            has_red_double = True
+                        if '蓝大' in bet_content_lower:
+                            has_blue_big = True
+                        if '蓝小' in bet_content_lower:
+                            has_blue_small = True
+                        if '蓝单' in bet_content_lower:
+                            has_blue_single = True
+                        if '蓝双' in bet_content_lower:
+                            has_blue_double = True
+                        if '绿大' in bet_content_lower:
+                            has_green_big = True
+                        if '绿小' in bet_content_lower:
+                            has_green_small = True
+                        if '绿单' in bet_content_lower:
+                            has_green_single = True
+                        if '绿双' in bet_content_lower:
+                            has_green_double = True
+                    
+                    # 检测第一种情况：有号码投注且有大小单双或波色/半波投注
+                    if all_numbers and (has_big or has_small or has_single or has_double or 
+                                        has_red_wave or has_blue_wave or has_green_wave or
+                                        has_red_big or has_red_small or has_red_single or has_red_double or
+                                        has_blue_big or has_blue_small or has_blue_single or has_blue_double or
+                                        has_green_big or has_green_small or has_green_single or has_green_double):
+                        
                         # 计算号码的属性分布
                         small_values = [num for num in all_numbers if 1 <= num <= 24]  # 六合彩小：1-24
                         big_values = [num for num in all_numbers if 25 <= num <= 49]   # 六合彩大：25-49
                         single_values = [num for num in all_numbers if num % 2 == 1]   # 单数
                         double_values = [num for num in all_numbers if num % 2 == 0]   # 双数
+                        
+                        # 定义波色号码范围
+                        red_wave_numbers = {1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46}
+                        blue_wave_numbers = {3,4,9,10,14,15,20,25,26,31,36,37,41,42,47,48}
+                        green_wave_numbers = {5,6,11,16,17,21,22,27,28,32,33,38,39,43,44,49}
+                        
+                        # 计算波色分布
+                        red_values = [num for num in all_numbers if num in red_wave_numbers]
+                        blue_values = [num for num in all_numbers if num in blue_wave_numbers]
+                        green_values = [num for num in all_numbers if num in green_wave_numbers]
+                        
+                        # 计算半波分布
+                        # 红大：红波且大
+                        red_big_values = [num for num in red_values if num >= 25]
+                        red_small_values = [num for num in red_values if num <= 24]
+                        red_single_values = [num for num in red_values if num % 2 == 1]
+                        red_double_values = [num for num in red_values if num % 2 == 0]
+                        
+                        # 蓝大：蓝波且大
+                        blue_big_values = [num for num in blue_values if num >= 25]
+                        blue_small_values = [num for num in blue_values if num <= 24]
+                        blue_single_values = [num for num in blue_values if num % 2 == 1]
+                        blue_double_values = [num for num in blue_values if num % 2 == 0]
+                        
+                        # 绿大：绿波且大
+                        green_big_values = [num for num in green_values if num >= 25]
+                        green_small_values = [num for num in green_values if num <= 24]
+                        green_single_values = [num for num in green_values if num % 2 == 1]
+                        green_double_values = [num for num in green_values if num % 2 == 0]
                         
                         # 收集所有可能的矛盾
                         possible_contradictions = []
@@ -3976,26 +4082,71 @@ class AnalysisEngine:
                         # 1. 投注小但包含多个大号码
                         if has_small and len(big_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
                             contradiction_value = len(big_values)
-                            description = f"特码投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
+                            description = f"投注小但包含多个大号码(小{len(small_values)}个,大{len(big_values)}个)"
                             possible_contradictions.append(('大小矛盾', description, contradiction_value))
                         
                         # 2. 投注大但包含多个小号码
                         if has_big and len(small_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
                             contradiction_value = len(small_values)
-                            description = f"特码投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
+                            description = f"投注大但包含多个小号码(小{len(small_values)}个,大{len(big_values)}个)"
                             possible_contradictions.append(('大小矛盾', description, contradiction_value))
                         
                         # 3. 投注单但包含多个双号码
                         if has_single and len(double_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
                             contradiction_value = len(double_values)
-                            description = f"特码投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
+                            description = f"投注单但包含多个双号码(单{len(single_values)}个,双{len(double_values)}个)"
                             possible_contradictions.append(('单双矛盾', description, contradiction_value))
                         
                         # 4. 投注双但包含多个单号码
                         if has_double and len(single_values) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
                             contradiction_value = len(single_values)
-                            description = f"特码投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
+                            description = f"投注双但包含多个单号码(单{len(single_values)}个,双{len(double_values)}个)"
                             possible_contradictions.append(('单双矛盾', description, contradiction_value))
+                        
+                        # 5. 投注红波但包含多个非红波号码（蓝波或绿波）
+                        if has_red_wave and (len(blue_values) + len(green_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(blue_values) + len(green_values)
+                            description = f"投注红波但包含多个非红波号码(红{len(red_values)}个,蓝{len(blue_values)}个,绿{len(green_values)}个)"
+                            possible_contradictions.append(('波色矛盾', description, contradiction_value))
+                        
+                        # 6. 投注蓝波但包含多个非蓝波号码（红波或绿波）
+                        if has_blue_wave and (len(red_values) + len(green_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(red_values) + len(green_values)
+                            description = f"投注蓝波但包含多个非蓝波号码(红{len(red_values)}个,蓝{len(blue_values)}个,绿{len(green_values)}个)"
+                            possible_contradictions.append(('波色矛盾', description, contradiction_value))
+                        
+                        # 7. 投注绿波但包含多个非绿波号码（红波或蓝波）
+                        if has_green_wave and (len(red_values) + len(blue_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(red_values) + len(blue_values)
+                            description = f"投注绿波但包含多个非绿波号码(红{len(red_values)}个,蓝{len(blue_values)}个,绿{len(green_values)}个)"
+                            possible_contradictions.append(('波色矛盾', description, contradiction_value))
+                        
+                        # 8. 半波投注矛盾检测
+                        # 红大半波
+                        if has_red_big and (len(red_small_values) + len(blue_values) + len(green_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(red_small_values) + len(blue_values) + len(green_values)
+                            description = f"投注红大半波但包含多个非红大号码"
+                            possible_contradictions.append(('半波矛盾', description, contradiction_value))
+                        
+                        # 红小半波
+                        if has_red_small and (len(red_big_values) + len(blue_values) + len(green_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(red_big_values) + len(blue_values) + len(green_values)
+                            description = f"投注红小半波但包含多个非红小号码"
+                            possible_contradictions.append(('半波矛盾', description, contradiction_value))
+                        
+                        # 红单单波
+                        if has_red_single and (len(red_double_values) + len(blue_values) + len(green_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(red_double_values) + len(blue_values) + len(green_values)
+                            description = f"投注红单半波但包含多个非红单号码"
+                            possible_contradictions.append(('半波矛盾', description, contradiction_value))
+                        
+                        # 红双半波
+                        if has_red_double and (len(red_single_values) + len(blue_values) + len(green_values)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                            contradiction_value = len(red_single_values) + len(blue_values) + len(green_values)
+                            description = f"投注红双半波但包含多个非红双号码"
+                            possible_contradictions.append(('半波矛盾', description, contradiction_value))
+                        
+                        # 类似地添加其他半波的检测...
                         
                         # 如果有检测到矛盾，创建记录
                         if possible_contradictions:
@@ -4016,6 +4167,38 @@ class AnalysisEngine:
                                 bet_content_parts.append('单')
                             if has_double:
                                 bet_content_parts.append('双')
+                            if has_red_wave:
+                                bet_content_parts.append('红波')
+                            if has_blue_wave:
+                                bet_content_parts.append('蓝波')
+                            if has_green_wave:
+                                bet_content_parts.append('绿波')
+                            # 添加半波投注
+                            if has_red_big:
+                                bet_content_parts.append('红大')
+                            if has_red_small:
+                                bet_content_parts.append('红小')
+                            if has_red_single:
+                                bet_content_parts.append('红单')
+                            if has_red_double:
+                                bet_content_parts.append('红双')
+                            if has_blue_big:
+                                bet_content_parts.append('蓝大')
+                            if has_blue_small:
+                                bet_content_parts.append('蓝小')
+                            if has_blue_single:
+                                bet_content_parts.append('蓝单')
+                            if has_blue_double:
+                                bet_content_parts.append('蓝双')
+                            if has_green_big:
+                                bet_content_parts.append('绿大')
+                            if has_green_small:
+                                bet_content_parts.append('绿小')
+                            if has_green_single:
+                                bet_content_parts.append('绿单')
+                            if has_green_double:
+                                bet_content_parts.append('绿双')
+                            
                             bet_content = ', '.join(bet_content_parts)
                             
                             # 添加号码部分
@@ -4037,7 +4220,10 @@ class AnalysisEngine:
                                 '大号码数量': len(big_values),
                                 '单号码数量': len(single_values),
                                 '双号码数量': len(double_values),
-                                '当期投注金额': period_amount,  # 添加金额信息
+                                '红波号码数量': len(red_values),
+                                '蓝波号码数量': len(blue_values),
+                                '绿波号码数量': len(green_values),
+                                '当期投注金额': period_amount,
                                 '排序权重': self._calculate_sort_weight(
                                     {'矛盾值': contradiction_value, '号码数量': len(all_numbers)}, 
                                     '特码变相超码'
@@ -4045,7 +4231,7 @@ class AnalysisEngine:
                             }
                             self._add_unique_result(results, '特码变相超码', record)
         
-        # ==================== 情况2：检测两面玩法中的区间投注+大小单双投注 ====================
+        # ==================== 情况2：检测两面玩法中的区间投注+大小单双/波色/半波投注 ====================
         
         # 如果已经触发区间多组，则跳过第二种情况的检测
         if not skip_interval_contradiction:
@@ -4055,14 +4241,27 @@ class AnalysisEngine:
             if two_sides_group.empty:
                 return
             
-            # 检查是否有特码区间投注和特码大小投注
+            # 检查是否有特码区间投注和特码大小/波色/半波投注
             has_interval_21_30 = False
             has_interval_31_40 = False
             has_interval_41_49 = False
-            has_tema_big = False
-            has_tema_small = False
-            has_tema_single = False
-            has_tema_double = False
+            
+            # 波色和半波投注标志
+            has_red_wave = False
+            has_blue_wave = False
+            has_green_wave = False
+            has_red_big = False
+            has_red_small = False
+            has_red_single = False
+            has_red_double = False
+            has_blue_big = False
+            has_blue_small = False
+            has_blue_single = False
+            has_blue_double = False
+            has_green_big = False
+            has_green_small = False
+            has_green_single = False
+            has_green_double = False
             
             for _, row in two_sides_group.iterrows():
                 content = str(row['内容'])
@@ -4076,22 +4275,47 @@ class AnalysisEngine:
                     if '41-49' in content:
                         has_interval_41_49 = True
                 
-                # 使用extract_lhc_two_sides_content方法检查特码大小单双投注
-                two_sides_analysis = self.data_analyzer.extract_lhc_two_sides_content(content)
-                normal_size = two_sides_analysis.get('normal_size', set())
-                parity = two_sides_analysis.get('parity', set())
-                
-                if '大' in normal_size:
-                    has_tema_big = True
-                if '小' in normal_size:
-                    has_tema_small = True
-                if '单' in parity:
-                    has_tema_single = True
-                if '双' in parity:
-                    has_tema_double = True
+                # 检查特码波色和半波投注
+                content_lower = content.lower()
+                if '红波' in content_lower:
+                    has_red_wave = True
+                if '蓝波' in content_lower:
+                    has_blue_wave = True
+                if '绿波' in content_lower:
+                    has_green_wave = True
+                if '红大' in content_lower:
+                    has_red_big = True
+                if '红小' in content_lower:
+                    has_red_small = True
+                if '红单' in content_lower:
+                    has_red_single = True
+                if '红双' in content_lower:
+                    has_red_double = True
+                if '蓝大' in content_lower:
+                    has_blue_big = True
+                if '蓝小' in content_lower:
+                    has_blue_small = True
+                if '蓝单' in content_lower:
+                    has_blue_single = True
+                if '蓝双' in content_lower:
+                    has_blue_double = True
+                if '绿大' in content_lower:
+                    has_green_big = True
+                if '绿小' in content_lower:
+                    has_green_small = True
+                if '绿单' in content_lower:
+                    has_green_single = True
+                if '绿双' in content_lower:
+                    has_green_double = True
             
-            # 如果有区间投注和大小单双投注，进行检测
-            if (has_interval_21_30 or has_interval_31_40 or has_interval_41_49) and (has_tema_big or has_tema_small or has_tema_single or has_tema_double):
+            # 检查是否有区间投注和大小/波色/半波投注
+            has_any_interval = has_interval_21_30 or has_interval_31_40 or has_interval_41_49
+            has_any_side_bet = (has_red_wave or has_blue_wave or has_green_wave or
+                               has_red_big or has_red_small or has_red_single or has_red_double or
+                               has_blue_big or has_blue_small or has_blue_single or has_blue_double or
+                               has_green_big or has_green_small or has_green_single or has_green_double)
+            
+            if has_any_interval and has_any_side_bet:
                 # 构建区间包含的号码集合
                 interval_numbers = set()
                 
@@ -4116,38 +4340,40 @@ class AnalysisEngine:
                     # 已经达到特码多码阈值，跳过区间变相超码检测
                     return
                 
+                # 定义波色号码范围
+                red_wave_numbers = {1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46}
+                blue_wave_numbers = {3,4,9,10,14,15,20,25,26,31,36,37,41,42,47,48}
+                green_wave_numbers = {5,6,11,16,17,21,22,27,28,32,33,38,39,43,44,49}
+                
                 # 计算区间号码的属性分布
                 interval_small = [num for num in interval_numbers if 1 <= num <= 24]
                 interval_big = [num for num in interval_numbers if 25 <= num <= 49]
                 interval_single = [num for num in interval_numbers if num % 2 == 1]
                 interval_double = [num for num in interval_numbers if num % 2 == 0]
                 
+                # 计算区间号码的波色分布
+                interval_red = [num for num in interval_numbers if num in red_wave_numbers]
+                interval_blue = [num for num in interval_numbers if num in blue_wave_numbers]
+                interval_green = [num for num in interval_numbers if num in green_wave_numbers]
+                
                 # 收集可能的矛盾
                 possible_contradictions = []
                 
-                # 1. 投注小但区间包含多个大号码
-                if has_tema_small and len(interval_big) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                    contradiction_value = len(interval_big)
-                    description = f"特码投注小但区间包含多个大号码(小{len(interval_small)}个,大{len(interval_big)}个)"
-                    possible_contradictions.append(('大小矛盾', description, contradiction_value))
+                # 波色矛盾检测
+                if has_red_wave and (len(interval_blue) + len(interval_green)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_blue) + len(interval_green)
+                    description = f"投注红波但区间包含多个非红波号码(红{len(interval_red)}个,蓝{len(interval_blue)}个,绿{len(interval_green)}个)"
+                    possible_contradictions.append(('波色矛盾', description, contradiction_value))
                 
-                # 2. 投注大但区间包含多个小号码
-                if has_tema_big and len(interval_small) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                    contradiction_value = len(interval_small)
-                    description = f"特码投注大但区间包含多个小号码(小{len(interval_small)}个,大{len(interval_big)}个)"
-                    possible_contradictions.append(('大小矛盾', description, contradiction_value))
+                if has_blue_wave and (len(interval_red) + len(interval_green)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_red) + len(interval_green)
+                    description = f"投注蓝波但区间包含多个非蓝波号码(红{len(interval_red)}个,蓝{len(interval_blue)}个,绿{len(interval_green)}个)"
+                    possible_contradictions.append(('波色矛盾', description, contradiction_value))
                 
-                # 3. 投注单但区间包含多个双号码
-                if has_tema_single and len(interval_double) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                    contradiction_value = len(interval_double)
-                    description = f"特码投注单但区间包含多个双号码(单{len(interval_single)}个,双{len(interval_double)}个)"
-                    possible_contradictions.append(('单双矛盾', description, contradiction_value))
-                
-                # 4. 投注双但区间包含多个单号码
-                if has_tema_double and len(interval_single) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
-                    contradiction_value = len(interval_single)
-                    description = f"特码投注双但区间包含多个单号码(单{len(interval_single)}个,双{len(interval_double)}个)"
-                    possible_contradictions.append(('单双矛盾', description, contradiction_value))
+                if has_green_wave and (len(interval_red) + len(interval_blue)) >= THRESHOLD_CONFIG['LHC']['value_size_contradiction']:
+                    contradiction_value = len(interval_red) + len(interval_blue)
+                    description = f"投注绿波但区间包含多个非绿波号码(红{len(interval_red)}个,蓝{len(interval_blue)}个,绿{len(interval_green)}个)"
+                    possible_contradictions.append(('波色矛盾', description, contradiction_value))
                 
                 # 如果有检测到矛盾，创建记录
                 if possible_contradictions:
@@ -4169,15 +4395,13 @@ class AnalysisEngine:
                     interval_desc = ', '.join(interval_desc_parts)
                     
                     bet_content_parts = []
-                    if has_tema_big:
-                        bet_content_parts.append('大')
-                    if has_tema_small:
-                        bet_content_parts.append('小')
-                    if has_tema_single:
-                        bet_content_parts.append('单')
-                    if has_tema_double:
-                        bet_content_parts.append('双')
-                    bet_content = f"区间: {interval_desc} | 两面: {', '.join(bet_content_parts)}"
+                    if has_red_wave:
+                        bet_content_parts.append('红波')
+                    if has_blue_wave:
+                        bet_content_parts.append('蓝波')
+                    if has_green_wave:
+                        bet_content_parts.append('绿波')
+                    bet_content = f"区间: {interval_desc} | 波色: {', '.join(bet_content_parts)}"
                     
                     record = {
                         '会员账号': account,
@@ -4190,11 +4414,10 @@ class AnalysisEngine:
                         '投注内容': bet_content,
                         '号码数量': total_interval_numbers,
                         '区间号码': interval_desc,
-                        '小号码数量': len(interval_small),
-                        '大号码数量': len(interval_big),
-                        '单号码数量': len(interval_single),
-                        '双号码数量': len(interval_double),
-                        '当期投注金额': period_amount,  # 添加金额信息
+                        '红波号码数量': len(interval_red),
+                        '蓝波号码数量': len(interval_blue),
+                        '绿波号码数量': len(interval_green),
+                        '当期投注金额': period_amount,
                         '排序权重': self._calculate_sort_weight(
                             {'矛盾值': contradiction_value, '号码数量': total_interval_numbers}, 
                             '特码区间变相超码'
